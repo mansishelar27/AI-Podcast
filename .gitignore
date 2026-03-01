@@ -1,0 +1,33 @@
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+/.venv/
+venv/
+mvenv/
+env/
+ENV/
+
+# Node.js / Frontend
+node_modules/
+dist/
+.npm
+npm-debug.log*
+
+# Project Specific Storage
+/storage/
+# Also ignore nested storage if any
+**/storage/
+
+# Sensitive data
+.env
+
+# Editor settings
+.vscode/
+.idea/
+.history/
+.vercel

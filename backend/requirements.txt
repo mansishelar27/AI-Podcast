@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+httpx
+requests
+python-dotenv
+pydantic
+aiofiles
+python-multipart
+pydantic-settings
+google-adk
+pydub
