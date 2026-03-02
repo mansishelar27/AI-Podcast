@@ -17,6 +17,10 @@ except ImportError:
     logger.warning("Google ADK not installed. Install with: pip install google-adk")
 
 
+# Single source of truth for agent description so backend + frontend can display it
+AGENT_DESCRIPTION: str = "Financial market analysis and podcast script generation"
+
+
 def initialize_agent() -> Tuple[Optional["Agent"], Optional["InMemorySessionService"], bool]:
     """
     Initialize Google ADK Agent and SessionService.
@@ -39,7 +43,7 @@ def initialize_agent() -> Tuple[Optional["Agent"], Optional["InMemorySessionServ
         agent = Agent(
             name="podcast_generation_agent",
             model=settings.GEMINI_MODEL,
-            description="Financial market analysis and podcast script generation",
+            description=AGENT_DESCRIPTION,
             instruction=(
                 "You are a financial research agent. "
                 "Research market data and generate professional podcast scripts."

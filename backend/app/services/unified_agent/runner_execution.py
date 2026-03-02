@@ -1,5 +1,6 @@
 import hashlib
-from typing import Optional, Tuple
+import re
+from typing import Optional, Tuple, List, Set, Any
 
 try:
     from google.genai import types
@@ -16,9 +17,35 @@ except ImportError:
 from app.core.logger import logger
 
 
-def _fail(msg: str) -> Tuple[None, str]:
-    """Return (None, error_message) for agent failure."""
-    return (None, msg)
+def _fail(msg: str) -> Tuple[None, str, List[str]]:
+    """Return (None, error_message, []) for agent failure."""
+    return (None, msg, [])
+
+
+def _extract_urls_from_value(value: Any, seen: Optional[Set[str]] = None) -> Set[str]:
+    """Recursively extract http(s) URLs from tool response (dict, list, or string)."""
+    if seen is None:
+        seen = set()
+    if value is None:
+        return seen
+    if isinstance(value, str):
+        for m in re.finditer(r"https?://[^\s\)\]\}\"'\s<>]+", value):
+            url = m.group(0).rstrip(".,;:)")
+            if len(url) > 10:
+                seen.add(url)
+        return seen
+    if isinstance(value, dict):
+        for k, v in value.items():
+            if k in ("link", "url", "href", "uri") and isinstance(v, str) and v.startswith("http"):
+                seen.add(v)
+            else:
+                _extract_urls_from_value(v, seen)
+        return seen
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            _extract_urls_from_value(item, seen)
+        return seen
+    return seen
 
 
 def _text_from_content(content) -> str:
@@ -45,15 +72,15 @@ async def run_agent_and_get_script(
     session_service,
     prompt: str,
     app_name: str = "podcast_agent"
-) -> Optional[dict]:
+) -> Tuple[Optional[dict], Optional[str], List[str]]:
     """
-    Execute the agent using Runner and collect the final text response.
-    Splits the response into two separate files: eng_pod (English) and hin_pod (Hindi).
-    Returns a dictionary with both scripts.
+    Execute the agent using Runner and collect the final text response and sources.
+    Splits the response into eng_pod and hin_pod. Collects URLs from tool (e.g. google_search) responses.
+    Returns (scripts_dict, error_message, sources_list).
     """
     if not GENAI_AVAILABLE or not ADK_RUNNER_AVAILABLE:
         logger.error("Google GenAI or ADK Runner not installed. Cannot execute agent.")
-        return None
+        return _fail("Google GenAI or ADK Runner not installed.")
 
     try:
         user_id = f"user_{hashlib.md5(prompt.encode()).hexdigest()[:8]}"
@@ -77,14 +104,37 @@ async def run_agent_and_get_script(
         )
 
         all_text_chunks = []
+        sources_seen: Set[str] = set()
         async for event in runner.run_async(
             user_id=user_id,
             session_id=session_id,
             new_message=user_content
         ):
-            text = _text_from_content(getattr(event, "content", None))
+            content = getattr(event, "content", None)
+            text = _text_from_content(content)
             if text:
                 all_text_chunks.append(text)
+            # Capture URLs from tool (e.g. google_search) responses via helper and raw parts
+            get_responses = getattr(event, "get_function_responses", None)
+            if callable(get_responses):
+                for fr in get_responses() or []:
+                    resp = getattr(fr, "response", None)
+                    _extract_urls_from_value(resp, sources_seen)
+            # Also inspect content.parts for function_response objects/dicts
+            parts = getattr(content, "parts", None)
+            if parts:
+                for part in parts:
+                    fr = getattr(part, "function_response", None)
+                    if fr is not None:
+                        resp = getattr(fr, "response", None) or getattr(fr, "result", None) or fr
+                        _extract_urls_from_value(resp, sources_seen)
+                    elif isinstance(part, dict) and part.get("function_response") is not None:
+                        fr_dict = part["function_response"]
+                        if isinstance(fr_dict, dict):
+                            resp = fr_dict.get("response") or fr_dict
+                        else:
+                            resp = fr_dict
+                        _extract_urls_from_value(resp, sources_seen)
         # Use FULL script from ALL streamed chunks (never break early on is_final_response).
         # Breaking on first "final" event was returning only a small tail and caused ~20s audio.
         if all_text_chunks:
@@ -95,7 +145,7 @@ async def run_agent_and_get_script(
 
         if not final_response or not final_response.strip():
             logger.error("Agent returned no final response text")
-            return _fail("The AI agent did not return any transcript. This can happen if the request timed out or the model could not generate content. Please try again.")
+            return (None, "The AI agent did not return any transcript. This can happen if the request timed out or the model could not generate content. Please try again.", [])
 
         logger.info("Agent response received — length: %d chars", len(final_response))
 
@@ -116,16 +166,17 @@ async def run_agent_and_get_script(
                     len(stripped),
                     min_length,
                 )
-                return _fail(
-                    f"The agent response was too short or missing English/Hindi markers ({len(stripped)} chars). Please try again."
-                )
+                return (None, f"The agent response was too short or missing English/Hindi markers ({len(stripped)} chars). Please try again.", [])
 
+        sources_list = sorted(sources_seen)
+        if sources_list:
+            logger.info("Captured %d source URL(s) from tool responses", len(sources_list))
         logger.info(
             "Successfully split into eng_pod (%d chars) and hin_pod (%d chars)",
             len(scripts["eng_pod"]),
             len(scripts["hin_pod"]),
         )
-        return (scripts, None)
+        return (scripts, None, sources_list)
 
     except Exception as e:
         logger.error("Runner execution failed: %s", str(e), exc_info=True)

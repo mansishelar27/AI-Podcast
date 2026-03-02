@@ -9,10 +9,11 @@ const apiClient = axios.create({
     },
 });
 
-export const generatePodcast = async (topic, voice = null, language = "both") => {
+export const generatePodcast = async (attribution, voice = null, language = "both", customPrompt = null) => {
     try {
-        const payload = { name: topic, language };
+        const payload = { name: attribution, language };
         if (voice) payload.voice_agent = voice;
+        if (customPrompt != null && String(customPrompt).trim() !== '') payload.custom_prompt = String(customPrompt).trim();
         const response = await apiClient.post('/generate', payload);
         return response.data;
     } catch (error) {
@@ -23,6 +24,23 @@ export const generatePodcast = async (topic, voice = null, language = "both") =>
         if (error.response?.data?.error) throw error.response.data.error;
         throw error.message || 'Failed to generate podcast. Please try again.';
     }
+};
+
+export const getAgentInfo = async () => {
+    const response = await apiClient.get('/agent-info');
+    return response.data;
+};
+
+export const getAgentInstruction = async (date = 'yesterday', attribution = 'Smart Finance Agent') => {
+    const response = await apiClient.get('/agent-instruction', {
+        params: { date, attribution }
+    });
+    return response.data;
+};
+
+export const getFinancialNews = async (limit = 25) => {
+    const response = await apiClient.get('/financial-news', { params: { limit } });
+    return response.data;
 };
 
 export default apiClient;
