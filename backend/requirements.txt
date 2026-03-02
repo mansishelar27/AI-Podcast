@@ -1,11 +1,29 @@
-fastapi
-uvicorn[standard]
-httpx
-requests
-python-dotenv
-pydantic
-aiofiles
-python-multipart
-pydantic-settings
+
+# AI Podcast Backend — Python dependencies
+# Python 3.10+ recommended. Install: pip install -r requirements.txt
+
+# Web framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+
+# HTTP client (Sarvam TTS API)
+httpx>=0.26.0
+requests>=2.31.0
+
+# Config & validation
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Async file I/O, form data
+aiofiles>=23.2.0
+python-multipart>=0.0.6
+
+# Google ADK (Gemini agent + Runner + google_search tool; pulls google-genai)
 google-adk
-pydub
+
+# Audio: combine WAV chunks, convert to MP3 (optional: fallback uses stdlib wave)
+pydub>=0.25.1
+
+# Numbers → words (Hindi) for TTS-friendly scripts
+num2words>=0.5.13

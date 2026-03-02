@@ -40,11 +40,13 @@ class UnifiedAgentService:
     async def process_podcast_request(
         self,
         target_date: Optional[str] = None,
-        attribution: Optional[str] = None
+        attribution: Optional[str] = None,
+        custom_prompt: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Main entry point: generate financial podcast scripts (English and Hindi) using Google ADK agent.
         Returns two separate podcast scripts: eng_pod (English) and hin_pod (Hindi).
+        If custom_prompt is provided (session-only), it overrides the default from prompt_builder.
         """
         target_date = target_date or "yesterday"
         attribution = attribution or "Financial Research Team"
@@ -54,11 +56,13 @@ class UnifiedAgentService:
 
         try:
             logger.info(f"Starting podcast script generation for date: {target_date}")
+            if custom_prompt:
+                logger.info("Using custom prompt (session-only) for this request")
 
-            prompt = build_podcast_prompt(target_date, attribution)
+            prompt = custom_prompt if custom_prompt else build_podcast_prompt(target_date, attribution)
 
-            # Run agent and get dictionary with both scripts
-            scripts_dict, agent_error = await run_agent_and_get_script(
+            # Run agent and get dictionary with both scripts and sources
+            scripts_dict, agent_error, sources_used = await run_agent_and_get_script(
                 agent=self.agent,
                 session_service=self.session_service,
                 prompt=prompt,
@@ -108,7 +112,8 @@ class UnifiedAgentService:
                 "eng_pod_length": len(eng_pod_cleaned),
                 "hin_pod_length": len(hin_pod_cleaned),
                 "total_length": len(eng_pod_cleaned) + len(hin_pod_cleaned),
-                "scripts_generated": 2
+                "scripts_generated": 2,
+                "sources_used": sources_used or [],
             }
 
         except Exception as e:

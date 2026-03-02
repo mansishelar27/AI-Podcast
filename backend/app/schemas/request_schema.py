@@ -20,6 +20,11 @@ class GenerateRequest(BaseModel):
         pattern="^(en|hi|both)$",
         example="en"
     )
+    custom_prompt: Optional[str] = Field(
+        None,
+        description="Optional custom agent instruction for this request (session-only; overrides default from prompt_builder)",
+        example=None
+    )
 
     class Config:
         schema_extra = {

@@ -112,6 +112,10 @@ class GenerateResponse(BaseModel):
         None,
         description="Error message (None if successful)"
     )
+    sources_used: Optional[List[str]] = Field(
+        None,
+        description="URLs/sources used to generate the transcript (e.g. from search tools)"
+    )
     timestamp: str = Field(
         ...,
         description="Timestamp of generation (ISO format)",

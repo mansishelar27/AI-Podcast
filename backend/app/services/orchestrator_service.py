@@ -8,6 +8,7 @@ from app.core.logger import logger
 from app.services.unified_agent.service import unified_agent_service
 from app.services.podcast.service import podcast_service
 from app.services.podcast.script_splitting import split_podcast_scripts, validate_script_chunks
+from app.services.podcast.audio import convert_hindi_script_numbers_to_words
 
 
 class OrchestratorService:
@@ -28,7 +29,8 @@ class OrchestratorService:
         self,
         name: str,
         voice_agent: Optional[str] = None,
-        language: str = "both"
+        language: str = "both",
+        custom_prompt: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Main orchestration pipeline for podcast generation.
@@ -97,7 +99,8 @@ class OrchestratorService:
 
             scripts_result = await unified_agent_service.process_podcast_request(
                 target_date=yesterday,
-                attribution=name
+                attribution=name,
+                custom_prompt=custom_prompt
             )
 
             if not scripts_result.get("success"):
@@ -105,9 +108,10 @@ class OrchestratorService:
                 logger.error(f"Script generation failed: {error_msg}")
                 return self._error_response(error_msg, yesterday, name, language)
 
-            # Extract scripts
+            # Extract scripts and sources
             eng_script = scripts_result.get("eng_pod", "")
             hin_script = scripts_result.get("hin_pod", "")
+            sources_used = scripts_result.get("sources_used") or []
 
             if not eng_script or not hin_script:
                 error_msg = "Agent did not return both English and Hindi scripts"
@@ -237,6 +241,10 @@ class OrchestratorService:
             logger.info("\n[STEP 4/4] COMPILING RESULTS")
             logger.info("-" * 70)
 
+            # Hindi script: return version with numbers/dates as Hindi words
+            # so UI shows "एक मार्च दो हज़ार छब्बीस" and TTS speaks the same
+            hin_pod_for_response = convert_hindi_script_numbers_to_words(hin_script)
+
             result = {
                 "status": "success",
                 "date": yesterday,
@@ -245,12 +253,12 @@ class OrchestratorService:
                 "language": language,
                 "scripts": {
                     "eng_pod": eng_script,
-                    "hin_pod": hin_script
+                    "hin_pod": hin_pod_for_response
                 },
                 "script_lengths": {
                     "eng_pod": len(eng_script),
-                    "hin_pod": len(hin_script),
-                    "total": len(eng_script) + len(hin_script)
+                    "hin_pod": len(hin_pod_for_response),
+                    "total": len(eng_script) + len(hin_pod_for_response)
                 },
                 "audio": audio_paths,
                 "speaker": voice_agent or ("abhilash" if language == "en" else "anushka"),
@@ -260,6 +268,7 @@ class OrchestratorService:
                     "total": chunks['total_chunks']
                 },
                 "error": None,
+                "sources_used": sources_used,
                 "timestamp": datetime.now().isoformat()
             }
 
@@ -321,6 +330,7 @@ class OrchestratorService:
                 "hin_pod_audio": None
             },
             "error": error_msg,
+            "sources_used": [],
             "timestamp": datetime.now().isoformat()
         }
 

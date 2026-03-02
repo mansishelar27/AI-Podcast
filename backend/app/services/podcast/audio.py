@@ -3,8 +3,11 @@ import os
 import base64
 import io
 import wave
+import re
 from datetime import datetime
 from typing import Optional, List, Dict
+
+from num2words import num2words
 
 try:
     import httpx
@@ -50,6 +53,71 @@ def _resolve_sarvam_speaker(speaker: Optional[str], language: str) -> str:
         return resolved
     # Any other value (sachit, karan, typo, etc.) -> use language default
     return SARVAM_DEFAULT_SPEAKER.get(language, "anushka")
+
+
+_HINDI_MONTHS = {
+    1: "जनवरी",
+    2: "फ़रवरी",
+    3: "मार्च",
+    4: "अप्रैल",
+    5: "मई",
+    6: "जून",
+    7: "जुलाई",
+    8: "अगस्त",
+    9: "सितंबर",
+    10: "अक्टूबर",
+    11: "नवंबर",
+    12: "दिसंबर",
+}
+
+
+def _normalize_hindi_dates(text: str) -> str:
+    """
+    For Hindi scripts, convert ISO dates like 2026-03-01 into a more
+    natural Hindi format, e.g. '1 मार्च 2026'. This helps the hi-IN
+    TTS model pronounce dates in Hindi instead of reading raw digits
+    in an English style.
+    """
+
+    def _replace(match: re.Match) -> str:
+        year = match.group(1)
+        month_num = int(match.group(2))
+        day_num = int(match.group(3))
+        month_name = _HINDI_MONTHS.get(month_num, match.group(2))
+        return f"{day_num} {month_name} {year}"
+
+    return re.sub(r"\b(\d{4})-(\d{2})-(\d{2})\b", _replace, text)
+
+
+def _convert_numbers_to_hindi_words(text: str) -> str:
+    """
+    Convert all standalone integer numbers in text to Hindi words.
+    Example:
+        2026 -> दो हज़ार छब्बीस
+        50   -> पचास
+    """
+
+    def replace_number(match: re.Match) -> str:
+        number = match.group()
+        try:
+            # num2words may return hyphenated words; replace hyphen with space
+            return num2words(int(number), lang="hi").replace("-", " ")
+        except Exception:
+            return number  # Fallback: leave as-is if conversion fails
+
+    # Replace standalone integers (not decimals / parts of words)
+    return re.sub(r"\b\d+\b", replace_number, text)
+
+
+def convert_hindi_script_numbers_to_words(script: str) -> str:
+    """
+    Convert dates and all numbers in a Hindi script to Hindi words.
+    Use this for both: (1) script returned in API response (so UI shows
+    "एक मार्च दो हज़ार छब्बीस"), and (2) text sent to TTS so it speaks in Hindi.
+    """
+    script = _normalize_hindi_dates(script)
+    script = _convert_numbers_to_hindi_words(script)
+    return script
 
 
 def _combine_wav_chunks_with_wave(chunks_bytes: List[bytes]) -> bytes:
@@ -189,6 +257,11 @@ async def generate_audio_from_script(
     logger.info(f"Generating audio from script -> language: {language} | speaker: {target_speaker} | format: {output_format}")
 
     try:
+        # For Hindi, convert dates and numbers to Hindi words so Sarvam
+        # speaks them in Hindi (e.g. 2026-03-01 → एक मार्च दो हज़ार छब्बीस).
+        if language == "hi":
+            script = convert_hindi_script_numbers_to_words(script)
+
         # Split script into SEPARATE chunks (max 500 chars each)
         from .script_splitting import split_script
         script_chunks = split_script(script, max_length=500, language=language)
@@ -210,7 +283,11 @@ async def generate_audio_from_script(
                     "speaker": target_speaker,
                     "pitch": 1.0,
                     "pace": 1.0,
-                    "loudness": 1.5
+                    "loudness": 1.5,
+                    # Enable Sarvam's smart text preprocessing so numbers and dates
+                    # are expanded naturally in the target language (hi-IN / en-IN).
+                    # Docs: https://docs.sarvam.ai/.../how-to/enable-text-preprocessing
+                    "enable_preprocessing": True,
                 }
 
                 headers = {
