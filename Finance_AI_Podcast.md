@@ -89,42 +89,46 @@ finance-ai-podcast/
 │   │   ├── api/
 │   │   │   ├── routes_generate.py
 │   │   │
-│   │   ├── services/
-│   │   │   ├── orchestrator_service.py
-│   │   │   ├── unified_agent_service.py
-│   │   │   ├── podcast_service.py
-│   │   │
 │   │   ├── schemas/
 │   │   │   ├── request_schema.py
 │   │   │   ├── response_schema.py
+│   │   │
+│   │   ├── services/
+│   │   │   ├── orchestrator_service.py
+│   │   │   ├── news_service.py
+│   │   │   ├── unified_agent/
+│   │   │   │   ├── agent_init.py
+│   │   │   │   ├── prompt_builder.py
+│   │   │   │   ├── service.py
+│   │   │   ├── podcast/
+│   │   │   │   ├── service.py
+│   │   │   │   ├── script_splitting.py
+│   │   │   │   ├── audio.py
 │   │   │
 │   │   ├── storage/
 │   │   │   ├── audio/
 │   │   │   ├── raw_data/
 │   │
 │   ├── requirements.txt
-│   ├── Dockerfile
-│   └── .env
+│   ├── .env
+│   └── venv/
 │
 ├── frontend/
-│   ├── public/
-│   ├── src/
-│   │   ├── api/
-│   │   │   ├── apiClient.js
-│   │   │
-│   │   ├── components/
-│   │   │   ├── TopicInput.jsx
-│   │   │   ├── SummaryDisplay.jsx
-│   │   │   ├── AudioPlayer.jsx
-│   │   │
-│   │   ├── pages/
-│   │   │   ├── Home.jsx
-│   │   │
-│   │   ├── App.js
-│   │   ├── index.js
-│   │
-│   ├── package.json
-│   └── .env
+│   └── frontend/
+│       ├── public/
+│       ├── src/
+│       │   ├── api/
+│       │   │   ├── apiClient.js
+│       │   ├── components/
+│       │   │   ├── TopicInput.jsx
+│       │   │   ├── SummaryDisplay.jsx
+│       │   │   ├── AudioPlayer.jsx
+│       │   ├── pages/
+│       │   │   ├── Home.jsx
+│       │   ├── App.js
+│       │   ├── index.js
+│       ├── package.json
+│       └── .env
 │
 └── README.md
 ```
@@ -139,46 +143,101 @@ Each service has a single, clearly defined responsibility. No service should per
 
 ## 1️⃣ orchestrator_service.py
 
-**Role: Central Pipeline Controller**
+**Role: Central Podcast Pipeline Controller**
 
-This is the master coordinator. It does not perform any scraping, filtering, or analysis itself — it sequences and triggers all other services in the correct order and ensures data flows correctly between them.
+This is the master coordinator. It does not perform any web scraping or LLM work itself — it sequences and triggers the unified agent and podcast services in the correct order and ensures data flows correctly between them.
 
 Responsibilities:
 * Inject yesterday's date into the process
-* Trigger the **UnifiedAgentService** for end-to-end Research, Analysis, and Script generation
-* Pass the final script to the **PodcastService** for audio conversion
-* Assemble and return the complete final JSON response
+* Trigger the **UnifiedAgentService** for end-to-end research and bilingual script generation (English + Hindi)
+* Split long scripts into smaller chunks for Sarvam TTS
+* Call **PodcastService** to generate audio in English, Hindi, or both depending on the `language` parameter
+* Assemble and return the final JSON response (matching `GenerateResponse`)
 * Save raw generated data to `storage/raw_data/` for audit and debugging purposes
-* Handle failures gracefully
+* Handle failures and invalid inputs gracefully and return standardized error payloads
 
 ---
 
-## 2️⃣ unified_agent_service.py
+## 2️⃣ unified_agent (Google ADK)
 
-**Role: Unified Research & Analysis Agent (Google ADK)**
+**Role: Unified Research & Script Agent (Google ADK)**
 
-This service leverages Google's Agent Development Kit (ADK) to perform an integrated pipeline in a single conceptual "agent run", although it internally manages search and analysis.
+This package (`app/services/unified_agent/`) leverages Google's Agent Development Kit (ADK) plus the `google_search` tool to perform an integrated pipeline in a single conceptual "agent run".
 
 Responsibilities:
-* **Autonomous Research**: Uses the native `google_search` tool to find the LATEST verified market closing data.
-* **Date-Locked Scoping**: Explicitly searches for and validates data specifically for the target date.
-* **Intelligent Analysis**: Analyzes gathered data to identify key facts, trends, and connections between Indian and global markets.
-* **Hinglish Scripting**: Generates a high-quality narrative podcast script in Hinglish (Roman script), optimized for TTS with pauses and natural flow.
-* **Structured Output**: Returns a robust JSON containing analysis, script, sources, and data quality metrics.
+* **Autonomous Research**: Uses the native `google_search` tool to find the latest relevant financial news and macro updates around the target date.
+* **Date-Aware Scoping**: Searches specifically for financial news around the requested date (usually yesterday).
+* **English + Hindi Scripts**: Generates a complete English script and a corresponding Hindi script using a fixed output format with `=====ENGLISH PODCAST SCRIPT=====` and `=====HINDI PODCAST SCRIPT=====` markers.
+* **Cleaning & Validation**: Cleans the raw LLM output, enforces minimum length for both scripts, and returns a structured dict (`eng_pod`, `hin_pod`, `sources_used`, metadata).
 
 ---
 
-## 3️⃣ podcast_service.py
+## 3️⃣ podcast (Sarvam TTS integration)
 
 **Role: Sarvam AI TTS Audio Converter**
 
+This package (`app/services/podcast/`) is responsible for turning the generated scripts into MP3 audio using Sarvam AI.
+
 Responsibilities:
-* Sends the finalized Hinglish script to the Sarvam AI API.
-* Uses the `hi-IN` target language with natural voices (e.g., "anushka") ideal for Hinglish content.
-* Automatically locates `ffmpeg` on the system and configures `pydub` for conversion.
-* Converts raw audio (WAV) to high-quality MP3 (192k bitrate).
-* Saves the returned audio in `storage/audio/`.
-* Serve the file via the `/audio/{filename}` static mount and return the public URL.
+* Wrap Sarvam AI `text-to-speech` endpoint with sane defaults and logging
+* Provide a high-level `PodcastService` that can:
+  * Generate audio for a **single** script (legacy mode)
+  * Generate audio for **both** English and Hindi scripts together
+* Use voices such as `"sachit"` (English) and `"anushka"` / `"karan"` (Hindi), configurable per request
+* Save audio files under `storage/audio/` with timestamped filenames
+* Return relative URLs like `/audio/podcast_hi_YYYYMMDD_HHMMSS.mp3` that FastAPI serves via `StaticFiles`
+
+---
+
+## 4️⃣ news_service.py
+
+**Role: Financial News Aggregator**
+
+Responsibilities:
+* Fetch and aggregate financial / stock market news from multiple India-focused RSS feeds
+* Normalize items into a common shape: title, link, published date, snippet, and source
+* Deduplicate similar stories by title and sort by published date (newest first)
+* Power the `/financial-news` endpoint used by the frontend "Market & financial news" sidebar
+
+---
+
+## 5️⃣ FastAPI application (main.py)
+
+**Role: API Composition Layer**
+
+Responsibilities:
+* Configure CORS and load settings from environment using `pydantic-settings`
+* Create storage directories (`storage/audio`, `storage/raw_data`) at startup
+* Mount static `/audio` for serving generated MP3s
+* Include all routes from `app/api/routes_generate.py` under `/api/v1`
+* Expose a simple health/welcome endpoint at `/`
+
+---
+
+## 6️⃣ Core configuration & logging
+
+* `core/config.py` – central `Settings` object with:
+  * `PROJECT_NAME`, `API_V1_STR`
+  * `GEMINI_API_KEY`, `SARVAM_API_KEY`
+  * `GEMINI_MODEL` (e.g., `gemini-2.5-flash`)
+  * `AUDIO_STORAGE_PATH`, `RAW_DATA_STORAGE_PATH`
+* `core/logger.py` – process-wide logger configured to stdout with timestamps and service labels
+
+---
+
+## 7️⃣ Backend API endpoints
+
+All backend endpoints are mounted under `settings.API_V1_STR` (default: `/api/v1`):
+
+* `GET /api/v1/agent-info`  
+  * Returns `{ "description": AGENT_DESCRIPTION }` so the frontend can display "Agent description".
+* `GET /api/v1/agent-instruction?date=YYYY-MM-DD&attribution=Smart+Finance+Agent`  
+  * Returns `{ "instruction": "<full prompt>" }` built by `prompt_builder.build_podcast_prompt`.
+* `GET /api/v1/financial-news?limit=25`  
+  * Returns `{ "items": [...], "count": N }` news items for the homepage sidebar.
+* `POST /api/v1/generate`  
+  * Request body: `GenerateRequest` (see schemas below)  
+  * Response body: `GenerateResponse` on success or a structured error JSON on failure.
 
 ---
 
@@ -233,25 +292,26 @@ Responsibilities:
 * Python 3.10+
 * FastAPI — async REST API framework
 * Google ADK — for autonomous agent capabilities and Google Search tool
-* Pydantic v2 — schema validation
-* python-dotenv — environment variable management
-* pydub — for audio format conversion (WAV to MP3)
-* ffmpeg — system dependency for audio processing
+* Pydantic v2 + `pydantic-settings` — validation and config
+* `python-dotenv` — environment variable management
+* `httpx` / `requests` — HTTP clients (Gemini, RSS feeds, Sarvam)
+* `pydub` + `ffmpeg` — audio processing (WAV/MP3 conversion)
+* `num2words` — for converting numbers to Hindi words in scripts
 
-**requirements.txt must include:**
+**Backend `requirements.txt` (simplified):**
 ```
-fastapi
-uvicorn[standard]
-httpx
-requests
-python-dotenv
-pydantic
-aiofiles
-python-multipart
-pydantic-settings
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+httpx>=0.26.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+aiofiles>=23.2.0
+python-multipart>=0.0.6
 google-adk
-google-adk-tools
-pydub
+pydub>=0.25.1
+num2words>=0.5.13
 ```
 
 ---
@@ -280,23 +340,55 @@ pydub
 
 # 📦 FINAL API RESPONSE FORMAT
 
-The `/api/v1/generate` endpoint must return exactly this structure. All fields are always present. Use `null` for optional fields that could not be populated.
+The `/api/v1/generate` endpoint returns a JSON body that matches the `GenerateResponse` Pydantic model. A typical **success** response looks like this:
 
 ```json
 {
-  "date": "YYYY-MM-DD",
-  "topic": "user topic or null",
-  "data_summary": "High-level summary of found data",
-  "overview": "Main narrative summary and key takeaways",
-  "india_analysis": "Detailed India-focused technical analysis",
-  "global_analysis": "Detailed Global-focused technical analysis",
-  "insights": "Connections, risks, and opportunities",
-  "podcast_script": "Full Hinglish narrative script",
-  "audio_url": "http://host/audio/filename.mp3",
-  "sources_used": ["url1", "url2"],
-  "data_quality": "High/Medium/Low",
   "status": "success",
-  "error": null
+  "date": "2026-02-26",
+  "name": "Smart Finance Agent",
+  "attribution": "Smart Finance Agent",
+  "language": "en",
+  "scripts": {
+    "eng_pod": "Welcome to the Smart Finance Agent Financial Podcast. Today's edition: 2026-02-26...",
+    "hin_pod": "स्मार्ट फाइनेंस एजेंट वित्तीय पॉडकास्ट में आपका स्वागत है। आज का संस्करण: 2026-02-26..."
+  },
+  "script_lengths": {
+    "eng_pod": 1500,
+    "hin_pod": 1600,
+    "total": 3100
+  },
+  "audio": {
+    "eng_pod_audio": "/audio/podcast_en_20260226_120000.mp3",
+    "hin_pod_audio": null
+  },
+  "speaker": "sachit",
+  "chunks": {
+    "eng_pod_count": 3,
+    "hin_pod_count": 3,
+    "total": 6
+  },
+  "error": null,
+  "sources_used": [
+    "https://example.com/news-1",
+    "https://example.com/news-2"
+  ],
+  "timestamp": "2026-02-26T12:00:00"
+}
+```
+
+On **error**, the backend returns a consistent error shape (either directly from the route or via the `ErrorResponse` model), including at minimum:
+
+```json
+{
+  "status": "error",
+  "date": "2026-02-26",
+  "name": "Smart Finance Agent",
+  "language": "en",
+  "scripts": null,
+  "audio": null,
+  "error": "Human-readable error message",
+  "timestamp": "2026-02-26T12:00:00"
 }
 ```
 
