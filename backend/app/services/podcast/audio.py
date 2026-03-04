@@ -29,18 +29,18 @@ except ImportError:
 
 # Sarvam TTS valid speaker IDs (from API validation). Map legacy/UI names to these.
 SARVAM_VALID_SPEAKERS = frozenset({
-    "anushka", "abhilash", "manisha", "vidya", "arya", "karun", "hitesh", "aditya",
+    "anushka", "abhilash", "manisha", "vidya", "arya", "karun", "hitesh", "arvind",
     "ritu", "priya", "neha", "rahul", "pooja", "rohan", "simran", "kavya", "amit",
     "dev", "ishita", "shreya", "ratan", "varun", "manan", "sumit", "roopa", "kabir",
     "aayan", "shubh", "ashutosh", "advait", "amelia", "sophia", "anand", "tanya", "tarun", "suraj",
 })
 # Map frontend/legacy voice names to valid Sarvam speaker IDs
 SARVAM_SPEAKER_ALIASES = {
-    "sachit": "aditya",   # English male (sachit not in Sarvam list)
+    "sachit": "arvind",   # English male (sachit not in Sarvam list)
     "karan": "karun",     # Hindi male (API uses karun)
 }
 # Default speakers by language when no valid speaker provided
-SARVAM_DEFAULT_SPEAKER = {"en": "aditya", "hi": "anushka"}
+SARVAM_DEFAULT_SPEAKER = {"en": "arvind", "hi": "anushka"}
 
 
 def _resolve_sarvam_speaker(speaker: Optional[str], language: str) -> str:
