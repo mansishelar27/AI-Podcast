@@ -1,6 +1,11 @@
 import axios from 'axios';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api/v1';
+// Ensure base URL always ends with /api/v1 so requests hit the correct backend routes.
+// Handles both: "https://example.onrender.com" and "https://example.onrender.com/api/v1"
+const rawBase = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_URL = rawBase.replace(/\/+$/, '').endsWith('/api/v1')
+    ? rawBase.replace(/\/+$/, '')
+    : `${rawBase.replace(/\/+$/, '')}/api/v1`;
 
 const apiClient = axios.create({
     baseURL: API_URL,
