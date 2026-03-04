@@ -36,11 +36,11 @@ SARVAM_VALID_SPEAKERS = frozenset({
 })
 # Map frontend/legacy voice names to valid Sarvam speaker IDs
 SARVAM_SPEAKER_ALIASES = {
-    "sachit": "arvind",   # English male (sachit not in Sarvam list)
+    "sachit": "abhilash",   # English male (sachit not in Sarvam list)
     "karan": "karun",     # Hindi male (API uses karun)
 }
 # Default speakers by language when no valid speaker provided
-SARVAM_DEFAULT_SPEAKER = {"en": "arvind", "hi": "anushka"}
+SARVAM_DEFAULT_SPEAKER = {"en": "abhilash", "hi": "anushka"}
 
 
 def _resolve_sarvam_speaker(speaker: Optional[str], language: str) -> str:
