@@ -27,3 +27,6 @@ pydub>=0.25.1
 
 # Numbers → words (Hindi) for TTS-friendly scripts
 num2words>=0.5.13
+
+# Cloudinary: upload MP3 to cloud and get public URL
+cloudinary>=1.36.0

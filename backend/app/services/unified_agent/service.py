@@ -1,3 +1,4 @@
+import socket
 from typing import Dict, Any, Optional
 
 from app.core.config import settings
@@ -116,6 +117,18 @@ class UnifiedAgentService:
                 "sources_used": sources_used or [],
             }
 
+        except (socket.gaierror, OSError) as e:
+            errno = getattr(e, "errno", None)
+            if errno == 11001 or errno == -2 or "getaddrinfo failed" in str(e):
+                msg = (
+                    "Network/DNS error: Cannot reach Google APIs. "
+                    "Check: (1) Internet connection, (2) DNS (try 8.8.8.8), "
+                    "(3) Firewall/proxy, (4) VPN if on corporate network."
+                )
+                logger.error("%s [%s]", msg, e)
+                return error_response(msg)
+            logger.error(f"Network error in podcast generation: {e}", exc_info=True)
+            return error_response(f"Network error: {e}")
         except Exception as e:
             logger.error(f"Critical error in podcast generation: {str(e)}", exc_info=True)
             return error_response(str(e))

@@ -9,6 +9,7 @@ from app.services.unified_agent.service import unified_agent_service
 from app.services.podcast.service import podcast_service
 from app.services.podcast.script_splitting import split_podcast_scripts, validate_script_chunks
 from app.services.podcast.audio import convert_hindi_script_numbers_to_words
+from app.services.cloudinary_service import upload_mp3
 
 
 class OrchestratorService:
@@ -237,6 +238,14 @@ class OrchestratorService:
                 logger.info(f"✓ English audio: {audio_paths['eng_pod_audio']}")
                 logger.info(f"✓ Hindi audio: {audio_paths['hin_pod_audio']}")
 
+            # ===== STEP 3b: UPLOAD TO CLOUDINARY (optional, non-fatal) =====
+            try:
+                logger.info("\n[STEP 3b] UPLOADING AUDIO TO CLOUDINARY")
+                logger.info("-" * 70)
+                audio_paths = self._upload_audio_paths_to_cloudinary(audio_paths, name, yesterday)
+            except Exception as cloud_err:
+                logger.warning("Cloudinary upload failed (using local paths): %s", cloud_err)
+
             # ===== STEP 4: COMPILE RESULTS =====
             logger.info("\n[STEP 4/4] COMPILING RESULTS")
             logger.info("-" * 70)
@@ -291,6 +300,35 @@ class OrchestratorService:
         except Exception as e:
             logger.exception(f"Orchestrator pipeline failed: {str(e)}")
             return self._error_response(str(e), yesterday, name, language)
+
+    def _upload_audio_paths_to_cloudinary(
+        self,
+        audio_paths: Dict[str, Optional[str]],
+        podcast_name: str,
+        date_str: str,
+    ) -> Dict[str, Optional[str]]:
+        """Upload local audio files to Cloudinary via upload_mp3(); return dict with Cloudinary URLs or original paths."""
+        result = {}
+        for key in ("eng_pod_audio", "hin_pod_audio"):
+            path = audio_paths.get(key)
+            if not path:
+                result[key] = None
+                continue
+            filename = os.path.basename(path)
+            local_path = os.path.join(settings.AUDIO_STORAGE_PATH, filename)
+            if not os.path.isfile(local_path):
+                logger.warning("Local file not found for upload: %s", local_path)
+                result[key] = path
+                continue
+            try:
+                public_id = f"podcasts/{filename.replace('.mp3', '')}"
+                resp = upload_mp3(local_path, public_id=public_id)
+                url = resp.get("secure_url") or resp.get("url")
+                result[key] = url if url else path
+            except Exception as e:
+                logger.warning("Cloudinary upload failed for %s: %s", filename, e)
+                result[key] = path
+        return result
 
     def _save_raw_data(self, data: Any, date_str: str, podcast_name: str):
         """Save raw generated data for audit and debugging"""

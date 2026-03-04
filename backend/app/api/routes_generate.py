@@ -1,10 +1,12 @@
-from fastapi import APIRouter, HTTPException
-from app.schemas.request_schema import GenerateRequest
+from fastapi import APIRouter
+from fastapi.responses import JSONResponse
+from app.schemas.request_schema import GenerateRequest, PublishPodcastRequest
 from app.schemas.response_schema import GenerateResponse
 from app.services.orchestrator_service import orchestrator_service
 from app.services.unified_agent.agent_init import AGENT_DESCRIPTION
 from app.services.unified_agent.prompt_builder import build_podcast_prompt
 from app.services.news_service import get_financial_news
+from app.services.published_podcasts_store import get_all_podcasts, add_podcast
 from app.core.logger import logger
 
 router = APIRouter()
@@ -43,23 +45,60 @@ async def financial_news(limit: int = 25):
     return {"items": items, "count": len(items)}
 
 
-@router.post("/generate", response_model=GenerateResponse)
+@router.post("/generate")
 async def generate_podcast(request: GenerateRequest):
     """
     Generate a finance market brief and podcast.
+    Returns 200 with status/error in body so frontend can display the real error message.
     """
     logger.info(f"Received generate request for: {request.name}")
-    result = await orchestrator_service.generate_podcast(
+    try:
+        result = await orchestrator_service.generate_podcast(
+            name=request.name,
+            voice_agent=request.voice_agent,
+            language=request.language,
+            custom_prompt=request.custom_prompt
+        )
+        return result
+    except Exception as e:
+        logger.exception("Generate endpoint failed: %s", e)
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "error",
+                "date": "",
+                "name": request.name,
+                "language": request.language or "both",
+                "scripts": {"eng_pod": None, "hin_pod": None},
+                "audio": {"eng_pod_audio": None, "hin_pod_audio": None},
+                "error": str(e),
+                "sources_used": [],
+                "timestamp": "",
+            },
+        )
+
+
+@router.get("/podcasts")
+async def list_podcasts():
+    """
+    Return all published podcasts (shared across all users).
+    Used by the frontend Search tab so everyone sees the same list.
+    """
+    items = get_all_podcasts()
+    return {"items": items, "count": len(items)}
+
+
+@router.post("/podcasts")
+async def publish_podcast(request: PublishPodcastRequest):
+    """
+    Publish a podcast to the shared list so all users can see and play it.
+    Expects a public audio URL (e.g. from Cloudinary or backend /audio/...).
+    """
+    entry = add_podcast(
         name=request.name,
-        voice_agent=request.voice_agent,
-        language=request.language,
-        custom_prompt=request.custom_prompt
+        description=request.description or "",
+        date=request.date,
+        lang=request.lang,
+        audio_url=request.audioUrl,
     )
-    
-    if result["status"] == "error":
-        if result["error"] == "Insufficient verified updates for yesterday.":
-            # This is a business error, not a server error
-            return result
-        raise HTTPException(status_code=500, detail=result["error"])
-        
-    return result
+    return entry
