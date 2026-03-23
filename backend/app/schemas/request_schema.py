@@ -34,3 +34,12 @@ class GenerateRequest(BaseModel):
                 "language": "en"
             }
         }
+
+
+class PublishPodcastRequest(BaseModel):
+    """Request body for publishing a podcast to the shared list (all users see it)."""
+    name: str = Field(..., min_length=1, description="Display name (e.g. 'Opening Bell - 2 Mar 2026')")
+    description: str = Field("", description="Short description or script snippet")
+    date: str = Field(..., description="Date label for display")
+    lang: str = Field(..., description="Language label: 'English' or 'Hindi'")
+    audioUrl: str = Field(..., min_length=1, description="Public URL of the audio (Cloudinary or backend /audio/...)")

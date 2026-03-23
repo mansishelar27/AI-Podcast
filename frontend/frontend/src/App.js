@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { generatePodcast, getAgentInfo, getAgentInstruction, getFinancialNews } from './api/apiClient';
+import { generatePodcast, getAgentInfo, getAgentInstruction, getFinancialNews, getPodcasts, publishPodcast } from './api/apiClient';
 
 // Language options: only English and Hindi
 const LANGUAGE_OPTIONS = ["English", "Hindi"];
@@ -942,8 +942,7 @@ function CustomAudioPlayer({ voice, name, audioUrl }) {
     const [duration, setDuration] = useState(0);
     const audioRef = useRef(null);
 
-    const backendBase = process.env.REACT_APP_API_URL ? process.env.REACT_APP_API_URL.replace('/api/v1', '') : 'http://localhost:8000';
-    const fullAudioUrl = audioUrl ?`${backendBase}${audioUrl}` : null;
+    const fullAudioUrl = resolveAudioUrl(audioUrl);
 
   useEffect(() => {
     if (fullAudioUrl) {
@@ -1030,7 +1029,14 @@ function CustomAudioPlayer({ voice, name, audioUrl }) {
 // Global Audio URL configuration helper
 const getBackendBaseUrl = () => {
     return process.env.REACT_APP_API_URL ? process.env.REACT_APP_API_URL.replace('/api/v1', '') : 'http://localhost:8000';
-}
+};
+
+// Resolve audio URL: Cloudinary (full https) use as-is; relative path → backend base + path
+const resolveAudioUrl = (audioUrl) => {
+    if (!audioUrl) return null;
+    if (audioUrl.startsWith('http://') || audioUrl.startsWith('https://')) return audioUrl;
+    return getBackendBaseUrl() + (audioUrl.startsWith('/') ? '' : '/') + audioUrl;
+};
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("search");
@@ -1065,22 +1071,33 @@ export default function App() {
   const [script, setScript] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
 
-  // Storage for previously generated podcasts
-  const [podcasts, setPodcasts] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('podcasts')) || [];
-    } catch {
-      return [];
-    }
-  });
+  // Published podcasts (shared list from backend; all users see the same)
+  const [podcasts, setPodcasts] = useState([]);
+  const [podcastsLoading, setPodcastsLoading] = useState(false);
+  const [podcastsError, setPodcastsError] = useState(null);
 
   const [financialNews, setFinancialNews] = useState([]);
   const [newsLoading, setNewsLoading] = useState(true);
   const [newsError, setNewsError] = useState(null);
 
+  const fetchPodcasts = async () => {
+    setPodcastsLoading(true);
+    setPodcastsError(null);
+    try {
+      const data = await getPodcasts();
+      setPodcasts(data?.items || []);
+    } catch (e) {
+      console.error("Failed to load podcasts", e);
+      setPodcastsError("Could not load podcasts.");
+      setPodcasts([]);
+    } finally {
+      setPodcastsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    localStorage.setItem('podcasts', JSON.stringify(podcasts));
-  }, [podcasts]);
+    fetchPodcasts();
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -1207,35 +1224,42 @@ export default function App() {
     }, 1500);
   };
 
-  const handlePublish = () => {
-    // Save to local storage with Opening/Closing bell naming
-    if (generatedData) {
-      const now = new Date();
-      // Simple rule: before 2 PM → Opening Bell, after → Closing Bell
-      const hour = now.getHours();
-      const sessionLabel = hour < 14 ? "Opening Bell" : "Closing Bell";
-      const dateLabel = now.toLocaleDateString("en-IN", {
-        year: "numeric",
-        month: "short",
-        day: "2-digit",
-      });
-      const displayName = `${sessionLabel} - ${dateLabel}`;
-
-      const newPodcast = {
-        id: Date.now(),
-        name: displayName,
-        description: script.substring(0, 100) + "...",
-        date: dateLabel,
-        lang: language,
-        audioUrl:
-          generatedData.audio?.eng_pod_audio ||
-          generatedData.audio?.hin_pod_audio ||
-          null,
-      };
-
-      setPodcasts([newPodcast, ...podcasts]);
+  const handlePublish = async () => {
+    if (!generatedData) {
+      setShowModal(false);
+      return;
     }
-    
+    const audioUrl =
+      generatedData.audio?.eng_pod_audio ||
+      generatedData.audio?.hin_pod_audio ||
+      null;
+    if (!audioUrl) {
+      setShowModal(false);
+      setActiveTab("search");
+      return;
+    }
+    const now = new Date();
+    const hour = now.getHours();
+    const sessionLabel = hour < 14 ? "Opening Bell" : "Closing Bell";
+    const dateLabel = now.toLocaleDateString("en-IN", {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+    });
+    const displayName = `${sessionLabel} - ${dateLabel}`;
+    const payload = {
+      name: displayName,
+      description: (script || "").substring(0, 200) + (script?.length > 200 ? "..." : ""),
+      date: dateLabel,
+      lang: language,
+      audioUrl,
+    };
+    try {
+      const created = await publishPodcast(payload);
+      setPodcasts((prev) => [created, ...prev]);
+    } catch (e) {
+      console.error("Failed to publish podcast", e);
+    }
     setShowModal(false);
     setActiveTab("search");
     setName("");
@@ -1293,13 +1317,16 @@ export default function App() {
                 {searchQuery ? `${filtered.length} result${filtered.length !== 1 ? "s" : ""} found` : "Recent Podcasts"}
               </div>
 
+              {podcastsLoading && <div className="news-loading">Loading podcasts…</div>}
+              {podcastsError && <div className="news-error">{podcastsError}</div>}
+
               <div className="podcast-list">
-                {filtered.length === 0 ? (
+                {!podcastsLoading && !podcastsError && filtered.length === 0 ? (
                   <div className="empty-state">
                     <div className="empty-icon">🎙</div>
-                    No podcasts found for "{searchQuery}"
+                    {searchQuery ? `No podcasts found for "${searchQuery}"` : "No podcasts yet. Create one to see it here."}
                   </div>
-                ) : filtered.map(p => (
+                ) : !podcastsLoading && filtered.map(p => (
                   <div className="podcast-card" key={p.id} onClick={() => playSavedPodcast(p)}>
                     <div className="play-btn">▶</div>
                     <div className="podcast-info">
@@ -1314,7 +1341,7 @@ export default function App() {
                       <a 
                         className="download-btn" 
                         title="Download"
-                        href={p.audioUrl ? `${getBackendBaseUrl()}${p.audioUrl}` : "#"}
+                        href={resolveAudioUrl(p.audioUrl) || "#"}
                         download
                         onClick={(e) => e.stopPropagation()}
                       >⬇</a>

@@ -1,5 +1,6 @@
 import hashlib
 import re
+import uuid
 from typing import Optional, Tuple, List, Set, Any
 
 try:
@@ -83,8 +84,10 @@ async def run_agent_and_get_script(
         return _fail("Google GenAI or ADK Runner not installed.")
 
     try:
-        user_id = f"user_{hashlib.md5(prompt.encode()).hexdigest()[:8]}"
-        session_id = f"session_{hashlib.md5(prompt.encode()).hexdigest()[:10]}"
+        # Use unique IDs per request to avoid "Session already exists" on shared server (e.g. Render)
+        request_id = uuid.uuid4().hex[:12]
+        user_id = f"user_{request_id}"
+        session_id = f"session_{request_id}"
 
         await session_service.create_session(
             app_name=app_name,
