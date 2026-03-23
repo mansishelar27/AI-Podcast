@@ -8,7 +8,11 @@ from app.core.logger import logger
 from app.services.unified_agent.service import unified_agent_service
 from app.services.podcast.service import podcast_service
 from app.services.podcast.script_splitting import split_podcast_scripts, validate_script_chunks
-from app.services.podcast.audio import convert_hindi_script_numbers_to_words
+from app.services.podcast.audio import (
+    convert_hindi_script_numbers_to_words,
+    generate_english_audio_deepgram,
+    DEEPGRAM_DEFAULT_VOICE,
+)
 from app.services.cloudinary_service import upload_mp3
 
 
@@ -154,29 +158,26 @@ class OrchestratorService:
             audio_paths = {}
 
             if language == "en":
-                # Generate English audio only (bulbul:v2: abhilash)
-                logger.info("Generating English audio only...")
-                
-                eng_speaker = voice_agent or "abhilash"
-                eng_audio_path, eng_err = await podcast_service.generate_audio_from_script(
+                # Generate English audio using Deepgram Aura TTS
+                logger.info("Generating English audio with Deepgram Aura TTS...")
+
+                eng_audio_path, eng_err = await generate_english_audio_deepgram(
                     script=eng_script,
-                    sarvam_api_key=settings.SARVAM_API_KEY,
-                    tts_url="https://api.sarvam.ai/text-to-speech",
-                    language="en",
+                    deepgram_api_key=settings.DEEPGRAM_API_KEY,
                     output_format="mp3",
-                    speaker=eng_speaker
+                    voice=DEEPGRAM_DEFAULT_VOICE,
                 )
 
                 if not eng_audio_path:
-                    error_msg = eng_err or "Failed to generate English audio"
+                    error_msg = eng_err or "Failed to generate English audio (Deepgram)"
                     logger.error(error_msg)
                     return self._error_response(error_msg, yesterday, name, language)
 
                 audio_paths = {
                     "eng_pod_audio": eng_audio_path,
-                    "hin_pod_audio": None
+                    "hin_pod_audio": None,
                 }
-                logger.info("English audio generated: %s", eng_audio_path)
+                logger.info("English audio (Deepgram) generated: %s", eng_audio_path)
 
             elif language == "hi":
                 # Generate Hindi audio only (free-tier: anushka)
@@ -204,39 +205,52 @@ class OrchestratorService:
                 logger.info("Hindi audio generated: %s", hin_audio_path)
 
             else:  # language == "both"
-                # Generate both English and Hindi audio (bulbul:v2 speakers only)
-                logger.info("Generating both English and Hindi audio...")
-                voice = (voice_agent or "").strip().lower()
-                eng_default, hin_default = "abhilash", "anushka"
-                hindi_capable = {"anushka", "karun", "manisha", "vidya", "arya"}
-                if voice in hindi_capable:
-                    eng_speaker = eng_default
-                    hin_speaker = voice_agent or hin_default
-                else:
-                    eng_speaker = voice_agent or eng_default
-                    hin_speaker = hin_default
+                # English via Deepgram Aura TTS, Hindi via Sarvam TTS
+                logger.info("Generating both audio tracks: English (Deepgram) + Hindi (Sarvam)...")
 
-                audio_result = await podcast_service.generate_podcast_audio(
-                    eng_script=eng_script,
-                    hin_script=hin_script,
-                    sarvam_api_key=settings.SARVAM_API_KEY,
-                    tts_url="https://api.sarvam.ai/text-to-speech",
+                # ── English: Deepgram ──────────────────────────────────────────
+                logger.info("[1/2] English audio → Deepgram Aura (%s)", DEEPGRAM_DEFAULT_VOICE)
+                eng_audio_path, eng_err = await generate_english_audio_deepgram(
+                    script=eng_script,
+                    deepgram_api_key=settings.DEEPGRAM_API_KEY,
                     output_format="mp3",
-                    eng_speaker=eng_speaker,
-                    hin_speaker=hin_speaker
+                    voice=DEEPGRAM_DEFAULT_VOICE,
                 )
 
-                if not audio_result or not audio_result.get("success"):
-                    error_msg = "Failed to generate audio"
+                if not eng_audio_path:
+                    error_msg = eng_err or "Failed to generate English audio (Deepgram)"
                     logger.error(error_msg)
                     return self._error_response(error_msg, yesterday, name, language)
 
+                logger.info("✓ English audio (Deepgram): %s", eng_audio_path)
+
+                # ── Hindi: Sarvam (unchanged) ──────────────────────────────────
+                logger.info("[2/2] Hindi audio → Sarvam TTS")
+                voice = (voice_agent or "").strip().lower()
+                hin_default = "anushka"
+                hindi_capable = {"anushka", "karun", "manisha", "vidya", "arya"}
+                hin_speaker = voice if voice in hindi_capable else hin_default
+
+                hin_audio_path, hin_err = await podcast_service.generate_audio_from_script(
+                    script=hin_script,
+                    sarvam_api_key=settings.SARVAM_API_KEY,
+                    tts_url="https://api.sarvam.ai/text-to-speech",
+                    language="hi",
+                    output_format="mp3",
+                    speaker=hin_speaker,
+                )
+
+                if not hin_audio_path:
+                    error_msg = hin_err or "Failed to generate Hindi audio (Sarvam)"
+                    logger.error(error_msg)
+                    return self._error_response(error_msg, yesterday, name, language)
+
+                logger.info("✓ Hindi audio (Sarvam): %s", hin_audio_path)
+
                 audio_paths = {
-                    "eng_pod_audio": audio_result.get("eng_pod_audio"),
-                    "hin_pod_audio": audio_result.get("hin_pod_audio")
+                    "eng_pod_audio": eng_audio_path,
+                    "hin_pod_audio": hin_audio_path,
                 }
-                logger.info(f"✓ English audio: {audio_paths['eng_pod_audio']}")
-                logger.info(f"✓ Hindi audio: {audio_paths['hin_pod_audio']}")
 
             # ===== STEP 3b: UPLOAD TO CLOUDINARY (optional, non-fatal) =====
             try:

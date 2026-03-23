@@ -4,13 +4,18 @@ import { generatePodcast, getAgentInfo, getAgentInstruction, getFinancialNews, g
 // Language options: only English and Hindi
 const LANGUAGE_OPTIONS = ["English", "Hindi"];
 
-// Voices by language (Sarvam TTS)
+// English voices — Deepgram Aura TTS (free tier)
 const ENGLISH_VOICES = [
-  { id: "sachit", label: "sachit (Male/En)" },
+  { id: "aura-arcas-en",   label: "Arcas (Male · American)" },
+  { id: "aura-asteria-en", label: "Asteria (Female · American)" },
+  { id: "aura-zeus-en",    label: "Zeus (Male · American · Deep)" },
+  { id: "aura-luna-en",    label: "Luna (Female · American · Warm)" },
+  { id: "aura-helios-en",  label: "Helios (Male · British)" },
 ];
+// Hindi voices — Sarvam bulbul:v2 TTS
 const HINDI_VOICES = [
-  { id: "anushka", label: "Anushka (Female/Hi)" },
-  { id: "karan", label: "Karan (Male/Hi)" },
+  { id: "anushka", label: "Anushka (Female · Hindi)" },
+  { id: "karan",   label: "Karan (Male · Hindi)" },
 ];
 
 function getVoicesForLanguage(lang) {
@@ -1216,13 +1221,13 @@ export default function App() {
   instructionEditModeRef.current = instructionEditMode;
   acceptedInstructionRef.current = acceptedInstruction;
   const [language, setLanguage] = useState("English");
-  const [voice, setVoice] = useState("sachit");
+  const [voice, setVoice] = useState("aura-arcas-en");
   const currentVoices = getVoicesForLanguage(language);
   // When language changes, reset voice to first option for that language
   const handleLanguageChange = (newLang) => {
     setLanguage(newLang);
     const voices = getVoicesForLanguage(newLang);
-    setVoice(voices[0]?.id ?? "sachit");
+    setVoice(voices[0]?.id ?? "aura-arcas-en");
   };
   const [showModal, setShowModal] = useState(false);
   const [stage, setStage] = useState("transcript_loading");
@@ -1671,7 +1676,7 @@ export default function App() {
               {currentVoices.length > 0 && (
                 <div className="form-group">
                   <label className="form-label">
-                    {language === "English" ? "English voices" : "Hindi voices"}
+                    {language === "English" ? "English voice (Deepgram Aura)" : "Hindi voice (Sarvam)"}
                   </label>
                   <div className="select-wrap">
                     <select className="form-select" value={voice} onChange={e => setVoice(e.target.value)}>

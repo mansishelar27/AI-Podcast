@@ -481,6 +481,175 @@ async def generate_podcast_audio(
         return None
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Deepgram Aura TTS — English audio generation
+# Uses Deepgram's Aura model (free tier available).
+# No SDK needed — plain HTTP via httpx.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Available Deepgram Aura voices (free tier)
+DEEPGRAM_VOICES = {
+    # American English — Male
+    "aura-arcas-en":   "Male · American · Professional",
+    "aura-orion-en":   "Male · American · Natural",
+    "aura-zeus-en":    "Male · American · Deep",
+    "aura-orpheus-en": "Male · American · Conversational",
+    # American English — Female
+    "aura-asteria-en": "Female · American · Professional",
+    "aura-luna-en":    "Female · American · Warm",
+    "aura-stella-en":  "Female · American · Clear",
+    # Other English
+    "aura-helios-en":  "Male · British",
+    "aura-athena-en":  "Female · British",
+    "aura-angus-en":   "Male · Irish",
+}
+
+# Default: professional American male — good for financial briefings
+DEEPGRAM_DEFAULT_VOICE = "aura-arcas-en"
+
+# Deepgram TTS endpoint
+DEEPGRAM_TTS_URL = "https://api.deepgram.com/v1/speak"
+
+# Chunk size for Deepgram (larger than Sarvam's 500 — Deepgram handles up to ~2000 chars)
+DEEPGRAM_CHUNK_SIZE = 1500
+
+
+async def generate_english_audio_deepgram(
+    script: str,
+    deepgram_api_key: str,
+    output_format: str = "mp3",
+    voice: str = DEEPGRAM_DEFAULT_VOICE,
+    audio_storage_path: str = settings.AUDIO_STORAGE_PATH,
+) -> tuple[Optional[str], Optional[str]]:
+    """
+    Generate English audio using Deepgram Aura TTS.
+
+    Replaces Sarvam TTS for English. Hindi continues to use Sarvam.
+
+    Flow:
+      1. Split script into ≤1500 char chunks
+      2. POST each chunk to Deepgram /v1/speak (returns raw WAV bytes)
+      3. Combine WAV chunks with existing combine_wav_chunks()
+      4. Optionally convert to MP3 with existing convert_to_mp3()
+      5. Save to AUDIO_STORAGE_PATH and return (/audio/filename, None)
+
+    Args:
+        script:            English podcast script text
+        deepgram_api_key:  Deepgram API key (Token auth)
+        output_format:     "mp3" (default) or "wav"
+        voice:             Deepgram Aura voice ID (default: aura-arcas-en)
+        audio_storage_path: Directory to save the audio file
+
+    Returns:
+        (url_path, None)   on success  →  e.g. ("/audio/podcast_en_20260323_120000.mp3", None)
+        (None, error_msg)  on failure
+    """
+    def fail(msg: str) -> tuple[Optional[str], Optional[str]]:
+        return (None, msg)
+
+    if not HTTPX_AVAILABLE:
+        return fail("httpx is not installed. Cannot call Deepgram API.")
+
+    if not deepgram_api_key:
+        return fail("Deepgram API key not configured. Add DEEPGRAM_API_KEY to your .env file.")
+
+    # Validate voice
+    if voice not in DEEPGRAM_VOICES:
+        logger.warning("Unknown Deepgram voice %r — falling back to %s", voice, DEEPGRAM_DEFAULT_VOICE)
+        voice = DEEPGRAM_DEFAULT_VOICE
+
+    logger.info("=" * 60)
+    logger.info("DEEPGRAM ENGLISH TTS")
+    logger.info("=" * 60)
+    logger.info("Voice  : %s (%s)", voice, DEEPGRAM_VOICES[voice])
+    logger.info("Format : %s", output_format)
+    logger.info("Script : %d chars", len(script))
+
+    try:
+        # Split into chunks — Deepgram handles ~2000 chars max per request
+        from .script_splitting import split_script
+        chunks = split_script(script, max_length=DEEPGRAM_CHUNK_SIZE, language="en")
+        logger.info("Split into %d chunk(s) for Deepgram TTS", len(chunks))
+
+        all_audio_chunks: List[bytes] = []
+
+        # Request WAV so we can reuse existing combine_wav_chunks()
+        # encoding=linear16 + container=wav → clean WAV bytes
+        url = f"{DEEPGRAM_TTS_URL}?model={voice}&encoding=linear16&container=wav"
+        headers = {
+            "Authorization": f"Token {deepgram_api_key}",
+            "Content-Type": "application/json",
+        }
+
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            for i, chunk in enumerate(chunks, 1):
+                logger.info("Deepgram chunk %d/%d (%d chars)", i, len(chunks), len(chunk))
+
+                resp = await client.post(url, headers=headers, json={"text": chunk})
+
+                if resp.status_code != 200:
+                    err_snippet = (resp.text or "")[:400]
+                    logger.error(
+                        "Deepgram TTS failed for chunk %d: HTTP %d → %s",
+                        i, resp.status_code, err_snippet,
+                    )
+                    return fail(
+                        f"Deepgram TTS error (HTTP {resp.status_code}): {err_snippet}"
+                    )
+
+                # Deepgram returns raw audio bytes (not base64)
+                audio_bytes_chunk = resp.content
+                if not audio_bytes_chunk:
+                    return fail(f"Deepgram returned empty audio for chunk {i}")
+
+                all_audio_chunks.append(audio_bytes_chunk)
+                logger.debug("Deepgram chunk %d received (%d bytes)", i, len(audio_bytes_chunk))
+
+        if not all_audio_chunks:
+            return fail("No audio chunks received from Deepgram.")
+
+        # Combine WAV chunks using existing helper
+        if len(all_audio_chunks) == 1:
+            logger.info("Single chunk — no combining needed")
+            audio_bytes = all_audio_chunks[0]
+        else:
+            logger.info("Combining %d Deepgram WAV chunks...", len(all_audio_chunks))
+            audio_bytes = await combine_wav_chunks(all_audio_chunks)
+
+        if not audio_bytes:
+            return fail("Failed to combine Deepgram audio chunks.")
+
+        # Convert to MP3 if requested
+        file_extension = "wav"
+        if output_format.lower() == "mp3":
+            logger.info("Converting Deepgram WAV → MP3...")
+            audio_bytes = await convert_to_mp3(audio_bytes)
+            file_extension = "mp3"
+
+        # Save to disk
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"podcast_en_{timestamp}.{file_extension}"
+        filepath = os.path.join(audio_storage_path, filename)
+
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        with open(filepath, "wb") as f:
+            f.write(audio_bytes)
+
+        size_mb = len(audio_bytes) / (1024 * 1024)
+        logger.info("Deepgram English audio saved → %s (%.2f MB)", filepath, size_mb)
+        logger.info("=" * 60)
+
+        return (f"/audio/{filename}", None)
+
+    except Exception as exc:
+        logger.exception("Deepgram audio generation failed: %s", exc)
+        return fail(str(exc))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Legacy wrapper (kept for backward compatibility)
+# ─────────────────────────────────────────────────────────────────────────────
+
 async def generate_audio(
     script: str,
     sarvam_api_key: str,
@@ -493,12 +662,12 @@ async def generate_audio(
     """
     Legacy function for backward compatibility.
     Use generate_audio_from_script() for new code.
-    
+
     This function processes a SINGLE script.
     For TWO scripts, use generate_podcast_audio() instead.
     """
     logger.warning("generate_audio() is deprecated. Use generate_audio_from_script() or generate_podcast_audio()")
-    
+
     path, err = await generate_audio_from_script(
         script=script,
         sarvam_api_key=sarvam_api_key,
@@ -506,6 +675,6 @@ async def generate_audio(
         language=language,
         output_format=output_format,
         speaker=speaker,
-        audio_storage_path=audio_storage_path
+        audio_storage_path=audio_storage_path,
     )
     return path

@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     # API Keys
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     SARVAM_API_KEY: str = os.getenv("SARVAM_API_KEY", "")
+    DEEPGRAM_API_KEY: str = os.getenv("DEEPGRAM_API_KEY", "")
     # Cloudinary: use CLOUDINARY_URL (recommended) or individual vars
     # Format: cloudinary://api_key:api_secret@cloud_name
     CLOUDINARY_URL: str = os.getenv("CLOUDINARY_URL", "")
