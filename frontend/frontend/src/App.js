@@ -1266,7 +1266,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    (async () => {
+    const fetchNews = async () => {
       setNewsLoading(true);
       setNewsError(null);
       try {
@@ -1279,7 +1279,11 @@ export default function App() {
       } finally {
         setNewsLoading(false);
       }
-    })();
+    };
+
+    fetchNews();
+    const interval = setInterval(fetchNews, 5 * 60 * 1000); // refresh every 5 minutes
+    return () => clearInterval(interval);
   }, []);
 
   // Fetch agent description once so we can show it in the Create tab
