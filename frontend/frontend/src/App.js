@@ -339,6 +339,31 @@ const style = `
 
   .download-btn:hover { background: #EFF6FC; color: #0F6CBD; border-color: #B4D6F0; }
 
+  .script-btn {
+    height: 30px;
+    padding: 0 10px;
+    background: #FFFFFF;
+    border: 1px solid #E0E0E0;
+    border-radius: 6px;
+    display: flex; align-items: center; gap: 4px;
+    color: #0F6CBD; font-size: 12px; font-weight: 500;
+    cursor: pointer;
+    transition: all 200ms ease-in-out;
+    white-space: nowrap;
+    font-family: var(--font-base);
+  }
+  .script-btn:hover { background: #EFF6FC; border-color: #B4D6F0; }
+
+  /* Script view modal */
+  .script-view-modal { max-width: 680px; width: 95vw; }
+  .script-view-modal .script-box {
+    max-height: 55vh;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    font-size: 14px;
+    line-height: 1.75;
+  }
+
   /* ── Create Form ── */
   .create-form {
     background: #FFFFFF;
@@ -1231,6 +1256,7 @@ export default function App() {
   };
   const [showModal, setShowModal] = useState(false);
   const [stage, setStage] = useState("transcript_loading");
+  const [scriptModal, setScriptModal] = useState({ open: false, podcast: null });
   
   // State for fetched generated podcast
   const [generatedData, setGeneratedData] = useState(null);
@@ -1422,7 +1448,7 @@ export default function App() {
     const displayName = `${sessionLabel} - ${dateLabel}`;
     const payload = {
       name: displayName,
-      description: (script || "").substring(0, 200) + (script?.length > 200 ? "..." : ""),
+      description: script || "",
       date: dateLabel,
       lang: language,
       audioUrl,
@@ -1540,6 +1566,15 @@ export default function App() {
                     </div>
                     <div className="podcast-meta">
                       <span className="duration">Podcast</span>
+                      {p.description && (
+                        <button
+                          className="script-btn"
+                          title="View Script"
+                          onClick={(e) => { e.stopPropagation(); setScriptModal({ open: true, podcast: p }); }}
+                        >
+                          📄 Script
+                        </button>
+                      )}
                       <a 
                         className="download-btn" 
                         title="Download"
@@ -1870,6 +1905,28 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* ── Script View Modal ── */}
+        {scriptModal.open && (
+          <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setScriptModal({ open: false, podcast: null })}>
+            <div className="modal script-view-modal">
+              <div className="modal-tag">Transcript</div>
+              <div className="modal-title">{scriptModal.podcast?.name}</div>
+              <div style={{ fontSize: 12, color: '#707070', marginBottom: 12 }}>
+                {scriptModal.podcast?.lang} · {scriptModal.podcast?.date}
+              </div>
+              <div className="script-box">
+                {scriptModal.podcast?.description || "Script not available for this podcast."}
+              </div>
+              <div className="modal-actions" style={{ marginTop: 16 }}>
+                <button className="btn-secondary" onClick={() => setScriptModal({ open: false, podcast: null })}>
+                  ✕ Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </>
   );
