@@ -1410,7 +1410,10 @@ export default function App() {
     }
     const now = new Date();
     const hour = now.getHours();
-    const sessionLabel = hour < 14 ? "Opening Bell" : "Closing Bell";
+    const minutes = now.getMinutes();
+    const sessionLabel = (hour < 15 || (hour === 15 && minutes < 30))
+      ? "Opening Bell"
+      : "Closing Bell";
     const dateLabel = now.toLocaleDateString("en-IN", {
       year: "numeric",
       month: "short",
