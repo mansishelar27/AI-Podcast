@@ -358,10 +358,18 @@ const style = `
   .script-view-modal { max-width: 680px; width: 95vw; }
   .script-view-modal .script-box {
     max-height: 55vh;
-    overflow-y: auto;
+    overflow-y: scroll;
     white-space: pre-wrap;
     font-size: 14px;
     line-height: 1.75;
+    scrollbar-width: thin;
+    scrollbar-color: #B4D6F0 #F5F5F5;
+  }
+  .script-view-modal .script-box::-webkit-scrollbar { width: 6px; }
+  .script-view-modal .script-box::-webkit-scrollbar-track { background: #F5F5F5; border-radius: 4px; }
+  .script-view-modal .script-box::-webkit-scrollbar-thumb { background: #B4D6F0; border-radius: 4px; }
+  .script-view-modal .script-char-count {
+    text-align: right; font-size: 11px; color: #A0A0A0; margin-top: 6px;
   }
 
   /* ── Create Form ── */
@@ -1918,6 +1926,13 @@ export default function App() {
               <div className="script-box">
                 {scriptModal.podcast?.description || "Script not available for this podcast."}
               </div>
+              {scriptModal.podcast?.description && (
+                <div className="script-char-count">
+                  {scriptModal.podcast.description.length > 250
+                    ? `${scriptModal.podcast.description.length.toLocaleString()} characters · scroll to read full script`
+                    : `${scriptModal.podcast.description.length} characters · older podcast may have truncated script`}
+                </div>
+              )}
               <div className="modal-actions" style={{ marginTop: 16 }}>
                 <button className="btn-secondary" onClick={() => setScriptModal({ open: false, podcast: null })}>
                   ✕ Close
