@@ -41,6 +41,7 @@ class UnifiedAgentService:
     async def process_podcast_request(
         self,
         target_date: Optional[str] = None,
+        current_datetime: Optional[str] = None,
         attribution: Optional[str] = None,
         custom_prompt: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -60,7 +61,7 @@ class UnifiedAgentService:
             if custom_prompt:
                 logger.info("Using custom prompt (session-only) for this request")
 
-            prompt = custom_prompt if custom_prompt else build_podcast_prompt(target_date, attribution)
+            prompt = custom_prompt if custom_prompt else build_podcast_prompt(target_date, current_datetime, attribution)
 
             # Run agent and get dictionary with both scripts and sources
             scripts_dict, agent_error, sources_used = await run_agent_and_get_script(

@@ -75,7 +75,9 @@ class OrchestratorService:
                 "error": None
             }
         """
-        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        now = datetime.now()
+        yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+        current_datetime = now.strftime("%Y-%m-%d %H:%M")
         
         try:
             # Validate language parameter
@@ -104,6 +106,7 @@ class OrchestratorService:
 
             scripts_result = await unified_agent_service.process_podcast_request(
                 target_date=yesterday,
+                current_datetime=current_datetime,
                 attribution=name,
                 custom_prompt=custom_prompt
             )

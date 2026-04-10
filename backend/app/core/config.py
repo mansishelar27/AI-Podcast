@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     # Storage Paths
     AUDIO_STORAGE_PATH: str = "storage/audio"
     RAW_DATA_STORAGE_PATH: str = "storage/raw_data"
+    INTRO_MUSIC_PATH: str = os.getenv("INTRO_MUSIC_PATH", "storage/audio/Nippon India Mutual Fund MOGOSCAPE®(2).mp3")
     
     class Config:
         case_sensitive = True

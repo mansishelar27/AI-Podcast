@@ -191,6 +191,41 @@ async def combine_wav_chunks(chunks_bytes: List[bytes]) -> bytes:
     return chunks_bytes[0]
 
 
+async def _prepend_intro_music(audio_bytes: bytes) -> bytes:
+    """
+    Prepend intro music to the provided audio bytes (WAV format).
+    Returns the modified WAV bytes or the original bytes if something fails.
+    """
+    if not PYDUB_AVAILABLE:
+        logger.debug("pydub not available, skipping intro music prepending.")
+        return audio_bytes
+
+    try:
+        intro_path = settings.INTRO_MUSIC_PATH
+        if not intro_path or not os.path.exists(intro_path):
+            logger.debug(f"Intro music file not found at {intro_path}, skipping.")
+            return audio_bytes
+
+        logger.info(f"Adding intro music from {intro_path}")
+        intro_audio = AudioSegment.from_file(intro_path)
+        
+        # Target audio from TTS chunks (expects WAV bytes)
+        tts_audio = AudioSegment.from_wav(io.BytesIO(audio_bytes))
+        
+        # Prepend intro (simple concatenation)
+        final_podcast = intro_audio + tts_audio
+        
+        # Export back to WAV bytes
+        wav_buffer = io.BytesIO()
+        final_podcast.export(wav_buffer, format="wav")
+        logger.info("Intro music prepended successfully")
+        return wav_buffer.getvalue()
+
+    except Exception as e:
+        logger.error(f"Failed to prepend intro music: {str(e)}")
+        return audio_bytes
+
+
 async def convert_to_mp3(audio_bytes: bytes) -> bytes:
     """
     Convert audio bytes from WAV to MP3 format.
@@ -332,6 +367,9 @@ async def generate_audio_from_script(
         if not audio_bytes:
             logger.error("Failed to combine audio chunks")
             return fail("Failed to combine audio chunks. (pydub/ffmpeg may be needed for multiple chunks.)")
+
+        # Prepend intro music if available
+        audio_bytes = await _prepend_intro_music(audio_bytes)
 
         # Optional MP3 conversion
         file_extension = "wav"
@@ -618,6 +656,9 @@ async def generate_english_audio_deepgram(
 
         if not audio_bytes:
             return fail("Failed to combine Deepgram audio chunks.")
+
+        # Prepend intro music if available
+        audio_bytes = await _prepend_intro_music(audio_bytes)
 
         # Convert to MP3 if requested
         file_extension = "wav"

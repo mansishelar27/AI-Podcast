@@ -19,9 +19,8 @@ dist/
 npm-debug.log*
 
 # Project Specific Storage
-/storage/
+
 # Also ignore nested storage if any
-**/storage/
 
 # Sensitive data
 .env
