@@ -1,13 +1,16 @@
+import asyncio
 import hashlib
+import random
 import re
 import uuid
 from typing import Optional, Tuple, List, Set, Any
 
 try:
-    from google.genai import types
+    from google.genai import types, errors
     GENAI_AVAILABLE = True
 except ImportError:
     GENAI_AVAILABLE = False
+    errors = None
 
 try:
     from google.adk.runners import Runner
@@ -83,107 +86,131 @@ async def run_agent_and_get_script(
         logger.error("Google GenAI or ADK Runner not installed. Cannot execute agent.")
         return _fail("Google GenAI or ADK Runner not installed.")
 
-    try:
-        # Use unique IDs per request to avoid "Session already exists" on shared server (e.g. Render)
-        request_id = uuid.uuid4().hex[:12]
-        user_id = f"user_{request_id}"
-        session_id = f"session_{request_id}"
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            # Use unique IDs per request to avoid "Session already exists" on shared server (e.g. Render)
+            request_id = uuid.uuid4().hex[:12]
+            user_id = f"user_{request_id}"
+            session_id = f"session_{request_id}"
 
-        await session_service.create_session(
-            app_name=app_name,
-            user_id=user_id,
-            session_id=session_id
-        )
+            await session_service.create_session(
+                app_name=app_name,
+                user_id=user_id,
+                session_id=session_id
+            )
 
-        runner = Runner(
-            agent=agent,
-            app_name=app_name,
-            session_service=session_service
-        )
+            runner = Runner(
+                agent=agent,
+                app_name=app_name,
+                session_service=session_service
+            )
 
-        user_content = types.Content(
-            role='user',
-            parts=[types.Part(text=prompt)]
-        )
+            user_content = types.Content(
+                role='user',
+                parts=[types.Part(text=prompt)]
+            )
 
-        all_text_chunks = []
-        sources_seen: Set[str] = set()
-        async for event in runner.run_async(
-            user_id=user_id,
-            session_id=session_id,
-            new_message=user_content
-        ):
-            content = getattr(event, "content", None)
-            text = _text_from_content(content)
-            if text:
-                all_text_chunks.append(text)
-            # Capture URLs from tool (e.g. google_search) responses via helper and raw parts
-            get_responses = getattr(event, "get_function_responses", None)
-            if callable(get_responses):
-                for fr in get_responses() or []:
-                    resp = getattr(fr, "response", None)
-                    _extract_urls_from_value(resp, sources_seen)
-            # Also inspect content.parts for function_response objects/dicts
-            parts = getattr(content, "parts", None)
-            if parts:
-                for part in parts:
-                    fr = getattr(part, "function_response", None)
-                    if fr is not None:
-                        resp = getattr(fr, "response", None) or getattr(fr, "result", None) or fr
+            all_text_chunks = []
+            sources_seen: Set[str] = set()
+            async for event in runner.run_async(
+                user_id=user_id,
+                session_id=session_id,
+                new_message=user_content
+            ):
+                content = getattr(event, "content", None)
+                text = _text_from_content(content)
+                if text:
+                    all_text_chunks.append(text)
+                # Capture URLs from tool (e.g. google_search) responses via helper and raw parts
+                get_responses = getattr(event, "get_function_responses", None)
+                if callable(get_responses):
+                    for fr in get_responses() or []:
+                        resp = getattr(fr, "response", None)
                         _extract_urls_from_value(resp, sources_seen)
-                    elif isinstance(part, dict) and part.get("function_response") is not None:
-                        fr_dict = part["function_response"]
-                        if isinstance(fr_dict, dict):
-                            resp = fr_dict.get("response") or fr_dict
-                        else:
-                            resp = fr_dict
-                        _extract_urls_from_value(resp, sources_seen)
-        # Use FULL script from ALL streamed chunks (never break early on is_final_response).
-        # Breaking on first "final" event was returning only a small tail and caused ~20s audio.
-        if all_text_chunks:
-            final_response = "\n\n".join(all_text_chunks)
-            logger.info("Full script from %d streamed chunks (%d chars)", len(all_text_chunks), len(final_response))
-        else:
-            final_response = None
-
-        if not final_response or not final_response.strip():
-            logger.error("Agent returned no final response text")
-            return (None, "The AI agent did not return any transcript. This can happen if the request timed out or the model could not generate content. Please try again.", [])
-
-        logger.info("Agent response received — length: %d chars", len(final_response))
-
-        stripped = final_response.strip()
-        scripts = split_podcast_scripts(stripped)
-
-        if not scripts:
-            # Fallback: use full response as single script for both (model may have skipped markers)
-            min_length = 50
-            if len(stripped) >= min_length:
-                logger.warning(
-                    "No English/Hindi markers found; using full response as both scripts"
-                )
-                scripts = {"eng_pod": stripped, "hin_pod": stripped}
+                # Also inspect content.parts for function_response objects/dicts
+                parts = getattr(content, "parts", None)
+                if parts:
+                    for part in parts:
+                        fr = getattr(part, "function_response", None)
+                        if fr is not None:
+                            resp = getattr(fr, "response", None) or getattr(fr, "result", None) or fr
+                            _extract_urls_from_value(resp, sources_seen)
+                        elif isinstance(part, dict) and part.get("function_response") is not None:
+                            fr_dict = part["function_response"]
+                            if isinstance(fr_dict, dict):
+                                resp = fr_dict.get("response") or fr_dict
+                            else:
+                                resp = fr_dict
+                            _extract_urls_from_value(resp, sources_seen)
+            # Use FULL script from ALL streamed chunks (never break early on is_final_response).
+            if all_text_chunks:
+                final_response = "\n\n".join(all_text_chunks)
+                logger.info("Full script from %d streamed chunks (%d chars)", len(all_text_chunks), len(final_response))
             else:
-                logger.error(
-                    "Failed to split response (length %d chars). Need markers or >= %d chars.",
-                    len(stripped),
-                    min_length,
+                final_response = None
+
+            if not final_response or not final_response.strip():
+                logger.error("Agent returned no final response text")
+                return (None, "The AI agent did not return any transcript. This can happen if the request timed out or the model could not generate content. Please try again.", [])
+
+            logger.info("Agent response received — length: %d chars", len(final_response))
+
+            stripped = final_response.strip()
+            scripts = split_podcast_scripts(stripped)
+
+            if not scripts:
+                # Fallback: use full response as single script for both (model may have skipped markers)
+                min_length = 50
+                if len(stripped) >= min_length:
+                    logger.warning(
+                        "No English/Hindi markers found; using full response as both scripts"
+                    )
+                    scripts = {"eng_pod": stripped, "hin_pod": stripped}
+                else:
+                    logger.error(
+                        "Failed to split response (length %d chars). Need markers or >= %d chars.",
+                        len(stripped),
+                        min_length,
+                    )
+                    return (None, f"The agent response was too short or missing English/Hindi markers ({len(stripped)} chars). Please try again.", [])
+
+            sources_list = sorted(sources_seen)
+            if sources_list:
+                logger.info("Captured %d source URL(s) from tool responses", len(sources_list))
+            logger.info(
+                "Successfully split into eng_pod (%d chars) and hin_pod (%d chars)",
+                len(scripts["eng_pod"]),
+                len(scripts["hin_pod"]),
+            )
+            return (scripts, None, sources_list)
+
+        except Exception as e:
+            # Determine if the error is transient and should be retried
+            is_transient = False
+            error_msg = str(e).lower()
+            
+            # 1. Check if it's a known API error code
+            if errors and isinstance(e, errors.APIError):
+                if e.status_code in (429, 503):
+                    is_transient = True
+            
+            # 2. Fallback check on error message strings (covers ADK wrapped exceptions)
+            elif any(x in error_msg for x in ("503", "429", "unavailable", "resource exhausted", "rate limit")):
+                is_transient = True
+            
+            if is_transient and attempt < max_retries - 1:
+                # Exponential backoff: 2s, 4s, 8s... with jitter
+                wait_time = (2 ** attempt) * 2 + random.uniform(0, 1)
+                logger.warning(
+                    f"Gemini API experiencing transient error (attempt {attempt + 1}/{max_retries}). "
+                    f"Retrying in {wait_time:.1f}s... Error: {e}"
                 )
-                return (None, f"The agent response was too short or missing English/Hindi markers ({len(stripped)} chars). Please try again.", [])
+                await asyncio.sleep(wait_time)
+                continue
 
-        sources_list = sorted(sources_seen)
-        if sources_list:
-            logger.info("Captured %d source URL(s) from tool responses", len(sources_list))
-        logger.info(
-            "Successfully split into eng_pod (%d chars) and hin_pod (%d chars)",
-            len(scripts["eng_pod"]),
-            len(scripts["hin_pod"]),
-        )
-        return (scripts, None, sources_list)
-
-    except Exception as e:
-        logger.error("Runner execution failed: %s", str(e), exc_info=True)
-        return _fail(f"Transcript generation failed: {str(e)}")
+            logger.error("Runner execution failed after %d attempts: %s", attempt + 1, str(e), exc_info=True)
+            return _fail(f"Transcript generation failed: {str(e)}")
 
 
 def split_podcast_scripts(full_response: str) -> Optional[dict]:

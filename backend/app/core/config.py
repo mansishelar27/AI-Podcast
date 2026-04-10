@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     CLOUDINARY_API_SECRET: str = os.getenv("CLOUDINARY_API_SECRET", "")
     
     # Model Settings
-    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_MODEL: str = "gemini-1.5-flash"
     
     # Storage Paths
     AUDIO_STORAGE_PATH: str = "storage/audio"
