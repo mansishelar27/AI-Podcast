@@ -192,7 +192,7 @@ async def run_agent_and_get_script(
             
             # 1. Check if it's a known API error code
             if errors and isinstance(e, errors.APIError):
-                if e.status_code in (429, 503):
+                if getattr(e, "code", None) in (429, 503):
                     is_transient = True
             
             # 2. Fallback check on error message strings (covers ADK wrapped exceptions)
