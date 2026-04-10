@@ -13,11 +13,13 @@ import httpx
 from app.core.logger import logger
 
 # RSS feeds: stock market and major financial news (India + global)
+# Note: Business Standard (business-standard.com) blocks automated requests with 403;
+# replaced with NDTV Profit which has an open RSS feed.
 FINANCIAL_RSS_FEEDS = [
     {"url": "https://economictimes.indiatimes.com/rss.cms", "source": "Economic Times"},
     {"url": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms", "source": "ET Markets"},
     {"url": "https://www.moneycontrol.com/rss/latestnews.xml", "source": "MoneyControl"},
-    {"url": "https://www.business-standard.com/rss/home_page_top_stories.rss", "source": "Business Standard"},
+    {"url": "https://feeds.feedburner.com/ndtvprofit-latest", "source": "NDTV Profit"},
 ]
 
 # Namespaces commonly used in RSS
@@ -63,12 +65,23 @@ def _parse_rss_item(item_el, source: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+# Mimic a real browser to avoid 403 bot-detection blocks from news sites
+_RSS_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/123.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/rss+xml, application/xml, text/xml, */*",
+}
+
+
 async def _fetch_and_parse_feed(url: str, source: str, timeout: float = 10.0) -> List[Dict[str, Any]]:
     """Fetch one RSS feed and return list of items."""
     items = []
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            resp = await client.get(url)
+            resp = await client.get(url, headers=_RSS_HEADERS)
             resp.raise_for_status()
             root = ET.fromstring(resp.text)
     except Exception as e:
