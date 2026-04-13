@@ -23,10 +23,9 @@ class Settings(BaseSettings):
     CLOUDINARY_API_KEY: str = os.getenv("CLOUDINARY_API_KEY", "")
     CLOUDINARY_API_SECRET: str = os.getenv("CLOUDINARY_API_SECRET", "")
     
-    # Model Settings - Using gemini-1.5-flash for better quota availability
+    # Model Settings - Try gemini-1.5-flash-002 (newer free tier model)
     # gemini-2.5-flash has very limited free tier quota (20 req/day)
-    # gemini-1.5-flash has more generous free tier limits
-    GEMINI_MODEL: str = "gemini-1.5-flash"
+    GEMINI_MODEL: str = "gemini-1.5-flash-002"
     
     # Storage Paths - use absolute paths for proper static file serving
     AUDIO_STORAGE_PATH: str = os.path.join(str(_backend_dir), "storage/audio")
