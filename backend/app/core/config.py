@@ -23,9 +23,11 @@ class Settings(BaseSettings):
     CLOUDINARY_API_KEY: str = os.getenv("CLOUDINARY_API_KEY", "")
     CLOUDINARY_API_SECRET: str = os.getenv("CLOUDINARY_API_SECRET", "")
     
-    # Model Settings - Try gemini-1.5-flash-002 (newer free tier model)
-    # gemini-2.5-flash has very limited free tier quota (20 req/day)
-    GEMINI_MODEL: str = "gemini-1.5-flash-002"
+    # Model Settings - ADK uses models in v1beta API
+    # Valid models: gemini-1.5-flash, gemini-2.0-flash, gemini-2.0-flash-lite
+    GEMINI_MODEL: str = "gemini-1.5-flash"
+    # Fallback models
+    GEMINI_MODEL_FALLBACK: str = "gemini-2.0-flash-lite"
     
     # Storage Paths - use absolute paths for proper static file serving
     AUDIO_STORAGE_PATH: str = os.path.join(str(_backend_dir), "storage/audio")

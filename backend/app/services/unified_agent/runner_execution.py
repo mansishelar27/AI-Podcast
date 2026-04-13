@@ -186,45 +186,58 @@ async def run_agent_and_get_script(
             return (scripts, None, sources_list)
 
         except Exception as e:
-            # Determine if the error is transient and should be retried
-            is_transient = False
-            error_msg = str(e).lower()
+            error_msg = str(e)
+            error_lower = error_msg.lower()
             
-            # 1. Check if it's a known API error code
+            # Check for 429 rate limit errors - more comprehensive detection
+            is_rate_limit = False
+            is_server_error = False
+            
+            # 1. Check if it's a Google API error
             if errors and isinstance(e, errors.APIError):
-                if getattr(e, "code", None) in (429, 503):
-                    is_transient = True
+                code = getattr(e, "code", None)
+                if code == 429:
+                    is_rate_limit = True
+                elif code in (503, 500, 502):
+                    is_server_error = True
             
-            # 2. Fallback check on error message strings (covers ADK wrapped exceptions)
-            elif any(x in error_msg for x in ("503", "429", "unavailable", "resource exhausted", "rate limit")):
-                is_transient = True
+            # 2. Check error message strings (covers ADK wrapped exceptions)
+            if any(x in error_lower for x in ("429", "rate limit", "resource exhausted", "quota exceeded", "too many requests")):
+                is_rate_limit = True
+            if any(x in error_lower for x in ("503", "500", "502", "unavailable", "service unavailable")):
+                is_server_error = True
             
-            if is_transient and attempt < max_retries - 1:
-                # Try to extract retry delay from error message (format: "retryDelay: 19s" or similar)
+            # Retry on rate limit or server errors
+            if (is_rate_limit or is_server_error) and attempt < max_retries - 1:
+                # Extract retry delay from error if available
                 wait_time = None
-                import re
-                retry_delay_match = re.search(r'retryDelay[:\s]+(\d+(?:\.\d+)?)\s*s', str(e), re.IGNORECASE)
+                retry_delay_match = re.search(r'(?:retryDelay|retry_after|retry-after)[:\s]*(\d+(?:\.\d+)?)\s*s?', error_msg, re.IGNORECASE)
                 if retry_delay_match:
                     try:
                         wait_time = float(retry_delay_match.group(1))
-                        logger.info(f"Gemini API suggested retry delay: {wait_time:.1f}s")
+                        logger.info(f"API suggested retry delay: {wait_time:.1f}s")
                     except (ValueError, AttributeError):
                         pass
                 
-                # Fall back to exponential backoff if no retry delay found
+                # Fall back to longer exponential backoff for rate limits
                 if not wait_time:
-                    # Exponential backoff: 2s, 4s, 8s... with jitter
-                    wait_time = (2 ** attempt) * 2 + random.uniform(0, 1)
+                    if is_rate_limit:
+                        # Longer backoff for 429: 10s, 20s, 40s...
+                        wait_time = (10 ** (attempt + 1)) + random.uniform(0, 2)
+                    else:
+                        # Standard backoff for 5xx: 2s, 4s, 8s...
+                        wait_time = (2 ** attempt) * 2 + random.uniform(0, 1)
                 
+                error_type = "RATE_LIMIT (429)" if is_rate_limit else "SERVER_ERROR (5xx)"
                 logger.warning(
-                    f"Gemini API experiencing transient error (attempt {attempt + 1}/{max_retries}). "
+                    f"{error_type} (attempt {attempt + 1}/{max_retries}). "
                     f"Retrying in {wait_time:.1f}s... Error: {e}"
                 )
                 await asyncio.sleep(wait_time)
                 continue
 
-            logger.error("Runner execution failed after %d attempts: %s", attempt + 1, str(e), exc_info=True)
-            return _fail(f"Transcript generation failed: {str(e)}")
+            logger.error("Runner execution failed after %d attempts: %s", attempt + 1, error_msg, exc_info=True)
+            return _fail(f"Transcript generation failed: {error_msg}")
 
 
 def split_podcast_scripts(full_response: str) -> Optional[dict]:
