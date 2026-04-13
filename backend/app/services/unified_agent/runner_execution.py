@@ -200,8 +200,22 @@ async def run_agent_and_get_script(
                 is_transient = True
             
             if is_transient and attempt < max_retries - 1:
-                # Exponential backoff: 2s, 4s, 8s... with jitter
-                wait_time = (2 ** attempt) * 2 + random.uniform(0, 1)
+                # Try to extract retry delay from error message (format: "retryDelay: 19s" or similar)
+                wait_time = None
+                import re
+                retry_delay_match = re.search(r'retryDelay[:\s]+(\d+(?:\.\d+)?)\s*s', str(e), re.IGNORECASE)
+                if retry_delay_match:
+                    try:
+                        wait_time = float(retry_delay_match.group(1))
+                        logger.info(f"Gemini API suggested retry delay: {wait_time:.1f}s")
+                    except (ValueError, AttributeError):
+                        pass
+                
+                # Fall back to exponential backoff if no retry delay found
+                if not wait_time:
+                    # Exponential backoff: 2s, 4s, 8s... with jitter
+                    wait_time = (2 ** attempt) * 2 + random.uniform(0, 1)
+                
                 logger.warning(
                     f"Gemini API experiencing transient error (attempt {attempt + 1}/{max_retries}). "
                     f"Retrying in {wait_time:.1f}s... Error: {e}"

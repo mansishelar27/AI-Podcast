@@ -201,7 +201,7 @@ async def _prepend_intro_music(audio_bytes: bytes) -> bytes:
         return audio_bytes
 
     try:
-        intro_path = settings.INTRO_MUSIC_PATH
+        intro_path = settings._resolve_intro_music_path()
         if not intro_path or not os.path.exists(intro_path):
             logger.debug(f"Intro music file not found at {intro_path}, skipping.")
             return audio_bytes

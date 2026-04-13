@@ -1438,8 +1438,7 @@ export default function App() {
       generatedData.audio?.hin_pod_audio ||
       null;
     if (!audioUrl) {
-      setShowModal(false);
-      setActiveTab("search");
+      setErrorMsg("No audio generated. Cannot publish podcast.");
       return;
     }
     const now = new Date();

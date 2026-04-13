@@ -23,13 +23,17 @@ class Settings(BaseSettings):
     CLOUDINARY_API_KEY: str = os.getenv("CLOUDINARY_API_KEY", "")
     CLOUDINARY_API_SECRET: str = os.getenv("CLOUDINARY_API_SECRET", "")
     
-    # Model Settings
-    GEMINI_MODEL: str = "gemini-2.5-flash"
+    # Model Settings - Using gemini-1.5-flash for better quota availability
+    # gemini-2.5-flash has very limited free tier quota (20 req/day)
+    # gemini-1.5-flash has more generous free tier limits
+    GEMINI_MODEL: str = "gemini-1.5-flash"
     
-    # Storage Paths
-    AUDIO_STORAGE_PATH: str = "storage/audio"
-    RAW_DATA_STORAGE_PATH: str = "storage/raw_data"
-    INTRO_MUSIC_PATH: str = os.getenv("INTRO_MUSIC_PATH", "storage/audio/Nippon India Mutual Fund MOGOSCAPE®(2).mp3")
+    # Storage Paths - use absolute paths for proper static file serving
+    AUDIO_STORAGE_PATH: str = os.path.join(str(_backend_dir), "storage/audio")
+    RAW_DATA_STORAGE_PATH: str = os.path.join(str(_backend_dir), "storage/raw_data")
+    # Intro music file path - set INTRO_MUSIC_PATH env var to point to your intro music file
+    # Default looks for intro music in storage/audio folder
+    INTRO_MUSIC_PATH: str = os.getenv("INTRO_MUSIC_PATH", os.path.join(str(_backend_dir), "storage/audio/Nippon India Mutual Fund MOGOSCAPE®(2).mp3"))
     
     class Config:
         case_sensitive = True
