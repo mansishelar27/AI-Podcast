@@ -1490,9 +1490,9 @@ export default function App() {
         <header>
           <div className="logo">
             <div className="logo-icon">📈</div>
-            <div className="logo-text">Smart <span>Finance</span></div>
+            <div className="logo-text">Nippon <span>Smart Finance</span></div>
           </div>
-          <div className="header-tag">Daily Brief</div>
+          <div className="header-tag">Nippon Daily Brief</div>
         </header>
 
         <div className="main-wrapper">
@@ -1514,7 +1514,7 @@ export default function App() {
               <div className="search-hero">
                 <div className="search-hero-content">
                   <div className="search-hero-eyebrow">Finance AI Podcast</div>
-                  <div className="search-hero-title">Your Financial Briefs</div>
+                  <div className="search-hero-title">Your Nippon Financial Briefs</div>
                   <div className="search-hero-sub">Listen to AI-generated market podcasts</div>
                 </div>
                 <div className="search-hero-art">
@@ -1604,7 +1604,7 @@ export default function App() {
               {/* ── Hero Banner ── */}
               <div className="form-hero-banner">
                 <div className="form-hero-content">
-                  <div className="form-hero-eyebrow">AI Podcast Studio</div>
+                  <div className="form-hero-eyebrow">Nippon AI Podcast Studio</div>
                   <div className="form-hero-title">New Podcast</div>
                   <div className="form-hero-subtitle">Generate your daily financial brief in seconds using AI.</div>
                 </div>
