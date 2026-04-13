@@ -1490,7 +1490,7 @@ export default function App() {
         <header>
           <div className="logo">
             <div className="logo-icon">📈</div>
-            <div className="logo-text">Nippon <span>Smart Finance</span></div>
+            <div className="logo-text"><span>Nippon Smart Finance</span></div>
           </div>
           <div className="header-tag">Nippon Daily Brief</div>
         </header>
