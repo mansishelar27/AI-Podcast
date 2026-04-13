@@ -11,7 +11,7 @@ venv/
 mvenv/
 env/
 ENV/
-
+**/published_podcasts.json
 # Node.js / Frontend
 node_modules/
 dist/
