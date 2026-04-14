@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     # Default looks for intro music in storage/audio folder
     INTRO_MUSIC_PATH: str = os.getenv("INTRO_MUSIC_PATH", os.path.join(str(_backend_dir), "storage/audio/Nippon India Mutual Fund MOGOSCAPE®(2).mp3"))
     
+    def _resolve_intro_music_path(self) -> str:
+        """Return the intro music file path if it exists."""
+        path = self.INTRO_MUSIC_PATH
+        if path and os.path.exists(path):
+            return path
+        return ""
+
     class Config:
         case_sensitive = True
 

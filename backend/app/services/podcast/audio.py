@@ -208,9 +208,17 @@ async def _prepend_intro_music(audio_bytes: bytes) -> bytes:
 
         logger.info(f"Adding intro music from {intro_path}")
         intro_audio = AudioSegment.from_file(intro_path)
+        logger.info(f"Intro audio: {len(int intro_audio)} ms, channels={intro_audio.channels}, sample_width={intro_audio.sample_width}, frame_rate={intro_audio.frame_rate}")
         
-        # Target audio from TTS chunks (expects WAV bytes)
+        # TTS audio from chunks (WAV format from Sarvam/Deepgram)
         tts_audio = AudioSegment.from_wav(io.BytesIO(audio_bytes))
+        logger.info(f"TTS audio: {len(tts_audio)} ms, channels={tts_audio.channels}, sample_width={tts_audio.sample_width}, frame_rate={tts_audio.frame_rate}")
+        
+        # Match TTS audio properties to intro audio (or vice versa)
+        if intro_audio.frame_rate != tts_audio.frame_rate:
+            tts_audio = tts_audio.set_frame_rate(intro_audio.frame_rate)
+        if intro_audio.channels != tts_audio.channels:
+            tts_audio = tts_audio.set_channels(intro_audio.channels)
         
         # Prepend intro (simple concatenation)
         final_podcast = intro_audio + tts_audio
@@ -218,7 +226,7 @@ async def _prepend_intro_music(audio_bytes: bytes) -> bytes:
         # Export back to WAV bytes
         wav_buffer = io.BytesIO()
         final_podcast.export(wav_buffer, format="wav")
-        logger.info("Intro music prepended successfully")
+        logger.info(f"Intro music prepended successfully ({len(final_podcast)} ms total)")
         return wav_buffer.getvalue()
 
     except Exception as e:
