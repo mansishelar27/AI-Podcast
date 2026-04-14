@@ -208,7 +208,7 @@ async def _prepend_intro_music(audio_bytes: bytes) -> bytes:
 
         logger.info(f"Adding intro music from {intro_path}")
         intro_audio = AudioSegment.from_file(intro_path)
-        logger.info(f"Intro audio: {len(int intro_audio)} ms, channels={intro_audio.channels}, sample_width={intro_audio.sample_width}, frame_rate={intro_audio.frame_rate}")
+        logger.info(f"Intro audio: {len(int (intro_audio))} ms, channels={intro_audio.channels}, sample_width={intro_audio.sample_width}, frame_rate={intro_audio.frame_rate}")
         
         # TTS audio from chunks (WAV format from Sarvam/Deepgram)
         tts_audio = AudioSegment.from_wav(io.BytesIO(audio_bytes))
