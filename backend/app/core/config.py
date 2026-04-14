@@ -24,8 +24,8 @@ class Settings(BaseSettings):
     CLOUDINARY_API_SECRET: str = os.getenv("CLOUDINARY_API_SECRET", "")
     
     # Model Settings - ADK uses models in v1beta API
-    # Valid models: gemini-1.5-flash, gemini-2.0-flash, gemini-2.0-flash-lite
-    GEMINI_MODEL: str = "gemini-1.5-flash"
+    # Valid models: gemini-1.5-flash, gemini-2.0-flash, gemini-2.0-flash-lite, gemini-2.5-flash
+    GEMINI_MODEL: str = "gemini-2.5-flash"
     # Fallback models
     GEMINI_MODEL_FALLBACK: str = "gemini-2.0-flash-lite"
     
