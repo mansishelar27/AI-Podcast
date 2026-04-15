@@ -27,6 +27,14 @@ except ImportError:
     # PYDUB_AVAILABLE is already handled by ffmpeg_check, but we need the import here for types if needed
     pass
 
+
+INTRO_MUSIC_FALLBACK_PATH = os.path.join(
+    str(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))),
+    "storage",
+    "audio",
+    "Nippon India Mutual Fund MOGOSCAPE®(2).mp3",
+)
+
 # Sarvam TTS valid speaker IDs (from API validation). Map legacy/UI names to these.
 SARVAM_VALID_SPEAKERS = frozenset({
     "anushka", "abhilash", "manisha", "vidya", "arya", "karun", "hitesh", "arvind",
@@ -201,14 +209,14 @@ async def _prepend_intro_music(audio_bytes: bytes) -> bytes:
         return audio_bytes
 
     try:
-        intro_path = settings._resolve_intro_music_path()
+        intro_path = _resolve_intro_music_path()
         if not intro_path or not os.path.exists(intro_path):
             logger.debug(f"Intro music file not found at {intro_path}, skipping.")
             return audio_bytes
 
         logger.info(f"Adding intro music from {intro_path}")
         intro_audio = AudioSegment.from_file(intro_path)
-        logger.info(f"Intro audio: {len(int (intro_audio))} ms, channels={intro_audio.channels}, sample_width={intro_audio.sample_width}, frame_rate={intro_audio.frame_rate}")
+        logger.info(f"Intro audio: {len(intro_audio)} ms, channels={intro_audio.channels}, sample_width={intro_audio.sample_width}, frame_rate={intro_audio.frame_rate}")
         
         # TTS audio from chunks (WAV format from Sarvam/Deepgram)
         tts_audio = AudioSegment.from_wav(io.BytesIO(audio_bytes))
@@ -232,6 +240,52 @@ async def _prepend_intro_music(audio_bytes: bytes) -> bytes:
     except Exception as e:
         logger.error(f"Failed to prepend intro music: {str(e)}")
         return audio_bytes
+
+
+def _resolve_intro_music_path() -> str:
+    """
+    Resolve intro music path with an explicit fallback to the requested file.
+    """
+    configured_path = settings._resolve_intro_music_path()
+    if configured_path:
+        return configured_path
+    if os.path.exists(INTRO_MUSIC_FALLBACK_PATH):
+        return INTRO_MUSIC_FALLBACK_PATH
+    return ""
+
+
+async def _prepend_intro_music_mp3(mp3_bytes: bytes) -> bytes:
+    """
+    Prepend intro music to MP3 bytes and return final MP3 bytes.
+    Intro file is already MP3 and is not converted independently.
+    """
+    if not PYDUB_AVAILABLE:
+        logger.debug("pydub not available, skipping intro MP3 prepending.")
+        return mp3_bytes
+
+    try:
+        intro_path = _resolve_intro_music_path()
+        if not intro_path:
+            logger.debug("Intro music file not found, skipping MP3 intro prepending.")
+            return mp3_bytes
+
+        intro_audio = AudioSegment.from_file(intro_path, format="mp3")
+        podcast_audio = AudioSegment.from_file(io.BytesIO(mp3_bytes), format="mp3")
+
+        # Match generated MP3 properties to intro before concatenation.
+        if intro_audio.frame_rate != podcast_audio.frame_rate:
+            podcast_audio = podcast_audio.set_frame_rate(intro_audio.frame_rate)
+        if intro_audio.channels != podcast_audio.channels:
+            podcast_audio = podcast_audio.set_channels(intro_audio.channels)
+
+        final_audio = intro_audio + podcast_audio
+        out = io.BytesIO()
+        final_audio.export(out, format="mp3", bitrate="192k", parameters=["-q:a", "2"])
+        logger.info("Intro MP3 prepended successfully (%d ms total)", len(final_audio))
+        return out.getvalue()
+    except Exception as e:
+        logger.error(f"Failed to prepend intro to MP3: {str(e)}")
+        return mp3_bytes
 
 
 async def convert_to_mp3(audio_bytes: bytes) -> bytes:
@@ -376,15 +430,16 @@ async def generate_audio_from_script(
             logger.error("Failed to combine audio chunks")
             return fail("Failed to combine audio chunks. (pydub/ffmpeg may be needed for multiple chunks.)")
 
-        # Prepend intro music if available
-        audio_bytes = await _prepend_intro_music(audio_bytes)
-
         # Optional MP3 conversion
         file_extension = "wav"
         if output_format.lower() == "mp3":
             logger.info("Converting WAV to MP3...")
             audio_bytes = await convert_to_mp3(audio_bytes)
+            audio_bytes = await _prepend_intro_music_mp3(audio_bytes)
             file_extension = "mp3"
+        else:
+            # Keep legacy WAV path intact for non-MP3 output requests.
+            audio_bytes = await _prepend_intro_music(audio_bytes)
 
         # Save file
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -665,15 +720,15 @@ async def generate_english_audio_deepgram(
         if not audio_bytes:
             return fail("Failed to combine Deepgram audio chunks.")
 
-        # Prepend intro music if available
-        audio_bytes = await _prepend_intro_music(audio_bytes)
-
         # Convert to MP3 if requested
         file_extension = "wav"
         if output_format.lower() == "mp3":
             logger.info("Converting Deepgram WAV → MP3...")
             audio_bytes = await convert_to_mp3(audio_bytes)
+            audio_bytes = await _prepend_intro_music_mp3(audio_bytes)
             file_extension = "mp3"
+        else:
+            audio_bytes = await _prepend_intro_music(audio_bytes)
 
         # Save to disk
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
