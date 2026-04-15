@@ -10,7 +10,7 @@ try:
     from google.adk.models import Gemini
     from google.adk.runners import Runner
     from google.adk.sessions import InMemorySessionService
-    from google.adk.tools import google_search
+    from google.adk.tools import FunctionTool
     ADK_AVAILABLE = True
 except ImportError:
     ADK_AVAILABLE = False
@@ -18,86 +18,94 @@ except ImportError:
     Gemini = None
     Runner = None
     InMemorySessionService = None
-    google_search = None
+    FunctionTool = None
     logger.warning("Google ADK not installed. Install with: pip install google-adk")
 
 try:
-    from google.adk.models.lite_llm import LiteLlm
-    LITELLM_AVAILABLE = True
+    from duckduckgo_search import DDGS
+    DDGS_AVAILABLE = True
 except ImportError:
-    LITELLM_AVAILABLE = False
-    LiteLlm = None
-    logger.warning("LiteLLM not installed. Install with: pip install litellm")
+    DDGS_AVAILABLE = False
+    logger.warning("duckduckgo-search not installed. Install with: pip install duckduckgo-search")
 
 
 AGENT_DESCRIPTION: str = "Financial market analysis and podcast script generation"
 
-MODELS_WITH_GOOGLE_SEARCH = {
-    "gemini-2.5-flash",
-    "gemini-flash-latest",
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
-    "gemini-1.5-pro",
-}
 
-MODELS_WITHOUT_GOOGLE_SEARCH = {
-    "gemma-4-26b-a4b-it",
-    "gemma-4-31b-it",
-    "gemma-3-27b-it",
-    "gemma-3-12b-it",
-}
-
-
-def create_agent(model_name: str, model_type: str = "gemini", api_base: str = None) -> Tuple[Optional["LlmAgent"], Optional[str]]:
+def web_search(query: str, max_results: int = 10) -> str:
     """
-    Create an agent with appropriate tool configuration.
-    Returns (agent, error_message).
+    Custom web search tool using DuckDuckGo.
+    Use this for financial research and getting current information.
+    
+    Args:
+        query: Search query (be specific and include context)
+        max_results: Maximum number of results to return (default: 10)
+    
+    Returns:
+        JSON string with search results including titles, URLs, and snippets
     """
+    if not DDGS_AVAILABLE:
+        return '{"error": "Search tool not available. Please install duckduckgo-search."}'
+    
     try:
-        if model_type == "gemini":
-            model = Gemini(model=model_name)
-            tools = [google_search] if google_search and model_name in MODELS_WITH_GOOGLE_SEARCH else []
+        results = []
+        with DDGS() as ddgs:
+            # Search for news/articles
+            for i, result in enumerate(ddgs.news(query, max_results=max_results)):
+                results.append({
+                    "type": "news",
+                    "title": result.get("title", ""),
+                    "url": result.get("url", ""),
+                    "snippet": result.get("body", ""),
+                    "source": result.get("source", ""),
+                })
+                if len(results) >= max_results:
+                    break
             
-            if model_name in MODELS_WITHOUT_GOOGLE_SEARCH:
-                logger.info(f"Model {model_name} doesn't support google_search - using without search tool")
-        elif model_type == "huggingface":
-            if not LITELLM_AVAILABLE:
-                return None, "LiteLLM not available"
-            
-            hf_token = os.getenv("HF_TOKEN", "")
-            model = LiteLlm(
-                model=model_name,
-                api_base=api_base,
-                api_key=hf_token,
-            )
-            tools = []  # HuggingFace models typically don't support google_search
-        else:
-            return None, f"Unknown model type: {model_type}"
-
-        agent = LlmAgent(
-            name="podcast_generation_agent",
-            model=model,
-            description=AGENT_DESCRIPTION,
-            instruction=(
-                "You are a financial research agent. "
-                "Research market data and generate professional podcast scripts."
-            ),
-            tools=tools,
-        )
-        return agent, None
-
+            # If not enough news results, fill with web results
+            if len(results) < max_results:
+                for result in ddgs.text(query, max_results=max_results):
+                    url = result.get("href", "")
+                    if url and not any(r["url"] == url for r in results):
+                        results.append({
+                            "type": "web",
+                            "title": result.get("title", ""),
+                            "url": url,
+                            "snippet": result.get("body", ""),
+                        })
+                        if len(results) >= max_results:
+                            break
+        
+        if not results:
+            return '{"results": [], "message": "No results found for: ' + query + '"}'
+        
+        return '{"results": ' + str(results) + '}'
+    
     except Exception as e:
-        return None, str(e)
+        return '{"error": "Search failed: ' + str(e) + '"}'
+
+
+def get_search_tool():
+    """Get the custom search tool for ADK."""
+    if not FunctionTool:
+        return None
+    return FunctionTool(
+        name="web_search",
+        description=(
+            "Search the web for current information, news, and financial data. "
+            "Use this tool to research market trends, stock prices, company news, "
+            "economic indicators, and other real-time information. "
+            "Input should be a clear search query string."
+        ),
+        fn=web_search,
+    )
 
 
 def initialize_agent() -> Tuple[Optional["LlmAgent"], Optional["InMemorySessionService"], bool]:
     """
     Initialize Google ADK Agent with model fallback chain.
     
-    Priority order:
-    1. Gemini models WITH google_search (most reliable for web search)
-    2. Gemma models WITHOUT google_search (rely on training data)
-    3. HuggingFace models (if configured)
+    All models use custom DuckDuckGo web search tool (free, no API key required).
 
     Returns (agent, session_service, success)
     """
@@ -105,35 +113,39 @@ def initialize_agent() -> Tuple[Optional["LlmAgent"], Optional["InMemorySessionS
         logger.error("Google ADK is required. Install: pip install google-adk")
         return None, None, False
 
-    if not settings.GEMINI_API_KEY and not os.getenv("HF_TOKEN"):
-        logger.error("Neither GEMINI_API_KEY nor HF_TOKEN configured in settings")
-        return None, None, False
+    if not DDGS_AVAILABLE:
+        logger.warning("duckduckgo-search not installed. Search will be limited.")
+        logger.info("Install with: pip install duckduckgo-search")
+
+    search_tool = get_search_tool()
+    tools = [search_tool] if search_tool else []
 
     model_chain = [
-        ("gemini-2.5-flash", "gemini", None, True),
-        ("gemini-flash-latest", "gemini", None, True),
-        ("gemini-2.0-flash", "gemini", None, True),
-        ("gemma-4-31b-it", "gemini", None, False),
-        ("gemma-4-26b-a4b-it", "gemini", None, False),
+        ("gemini-2.5-flash", "gemini"),
+        ("gemini-flash-latest", "gemini"),
+        ("gemini-2.0-flash", "gemini"),
+        ("gemma-4-31b-it", "gemini"),
+        ("gemma-4-26b-a4b-it", "gemini"),
     ]
 
-    hf_model = os.getenv("HF_FALLBACK_MODEL")
-    hf_api_base = os.getenv("HF_INFERENCE_API_BASE")
-    if hf_model:
-        model_chain.append((hf_model, "huggingface", hf_api_base, False))
-
-    for model_name, model_type, api_base, supports_search in model_chain:
+    for model_name, model_type in model_chain:
         try:
-            search_note = "with google_search" if supports_search else "without google_search"
-            logger.info(f"Initializing agent with model: {model_name} ({search_note})")
+            logger.info(f"Initializing agent with model: {model_name}")
 
-            agent, error = create_agent(model_name, model_type, api_base)
-            if agent is None:
-                error_lower = error.lower() if error else ""
-                if "not supported" in error_lower or "not available" in error_lower:
-                    logger.warning(f"Model {model_name} not available: {error}, trying next...")
-                    continue
-                return None, None, False
+            model = Gemini(model=model_name)
+
+            agent = LlmAgent(
+                name="podcast_generation_agent",
+                model=model,
+                description=AGENT_DESCRIPTION,
+                instruction=(
+                    "You are a financial research agent. "
+                    "Research market data and generate professional podcast scripts. "
+                    "Use the web_search tool to get current financial news, stock prices, "
+                    "market trends, and economic data from the internet."
+                ),
+                tools=tools,
+            )
 
             session_service = InMemorySessionService()
 
@@ -145,15 +157,15 @@ def initialize_agent() -> Tuple[Optional["LlmAgent"], Optional["InMemorySessionS
             error_lower = error_msg.lower()
             
             if any(x in error_lower for x in ["429", "rate limit", "quota", "resource exhausted", "too many requests"]):
-                logger.warning(f"Model {model_name} rate limited, trying next fallback...")
+                logger.warning(f"Model {model_name} rate limited, trying next...")
                 continue
 
             if "not supported" in error_lower or "google search" in error_lower:
-                logger.warning(f"Model {model_name} doesn't support required features: {error_msg}")
+                logger.warning(f"Model {model_name} feature issue: {error_msg}, trying next...")
                 continue
 
             logger.error(f"Failed to initialize agent with {model_name}: {error_msg}", exc_info=True)
             continue
 
-    logger.error("All models exhausted - all hit rate limits or failed")
+    logger.error("All models exhausted - all failed to initialize")
     return None, None, False
