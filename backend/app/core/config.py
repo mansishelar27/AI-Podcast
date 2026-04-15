@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # Gemma 4 models (primary): gemma-4-26b-a4b-it, gemma-4-31b-it
     # Gemini models (fallback): gemini-2.5-flash, gemini-flash-latest
     # HuggingFace via HF_TOKEN env var (ultimate fallback)
-    GEMINI_MODEL: str = "gemma-4-26b-a4b-it"
+    GEMINI_MODEL: str = "gemini-2.5-flash"
 
     # HuggingFace fallback settings (optional)
     # HF_TOKEN: Your HuggingFace token

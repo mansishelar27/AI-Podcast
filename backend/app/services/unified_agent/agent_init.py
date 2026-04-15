@@ -43,8 +43,7 @@ def initialize_agent() -> Tuple[Optional["LlmAgent"], Optional["InMemorySessionS
         return None, None, False
 
     model_chain = [
-        "gemini-flash-latest",
-        "gemini-2.0-flash",
+        "gemini-2.5-flash",
     ]
 
     for model_name in model_chain:
