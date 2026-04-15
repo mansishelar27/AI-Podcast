@@ -19,15 +19,8 @@ pydantic-settings>=2.1.0
 aiofiles>=23.2.0
 python-multipart>=0.0.6
 
-# Google ADK (Gemini agent + Runner; pulls google-genai)
+# Google ADK (Gemini agent + Runner + google_search; pulls google-genai)
 google-adk
-
-# LiteLLM (for HuggingFace and other provider support)
-# pip install litellm
-litellm>=1.0.0
-
-# Web search (free, no API key required)
-duckduckgo-search>=6.0.0
 
 # Audio: combine WAV chunks, convert to MP3 (optional: fallback uses stdlib wave)
 pydub>=0.25.1
