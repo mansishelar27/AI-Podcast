@@ -22,6 +22,10 @@ python-multipart>=0.0.6
 # Google ADK (Gemini agent + Runner + google_search tool; pulls google-genai)
 google-adk
 
+# LiteLLM (for HuggingFace and other provider support)
+# pip install litellm
+litellm>=1.0.0
+
 # Audio: combine WAV chunks, convert to MP3 (optional: fallback uses stdlib wave)
 pydub>=0.25.1
 

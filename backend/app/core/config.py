@@ -24,10 +24,15 @@ class Settings(BaseSettings):
     CLOUDINARY_API_SECRET: str = os.getenv("CLOUDINARY_API_SECRET", "")
     
     # Model Settings - ADK uses models in v1beta API
-    # Valid models: gemini-1.5-flash, gemini-2.0-flash, gemini-2.0-flash-lite, gemini-2.5-flash
-    GEMINI_MODEL: str = "gemini-2.5-flash"
-    # Fallback models
-    GEMINI_MODEL_FALLBACK: str = "gemini-2.0-flash-lite"
+    # Gemma 4 models (primary): gemma-4-26b-a4b-it, gemma-4-31b-it
+    # Gemini models (fallback): gemini-2.5-flash, gemini-flash-latest
+    # HuggingFace via HF_TOKEN env var (ultimate fallback)
+    GEMINI_MODEL: str = "gemma-4-26b-a4b-it"
+
+    # HuggingFace fallback settings (optional)
+    # HF_TOKEN: Your HuggingFace token
+    # HF_FALLBACK_MODEL: Model ID (e.g., meta-llama/Llama-3-70b)
+    # HF_INFERENCE_API_BASE: Inference endpoint URL (for hosted models)
     
     # Storage Paths - use absolute paths for proper static file serving
     AUDIO_STORAGE_PATH: str = os.path.join(str(_backend_dir), "storage/audio")
