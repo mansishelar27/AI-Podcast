@@ -5,6 +5,7 @@ import io
 import wave
 import re
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Optional, List, Dict
 
 from num2words import num2words
@@ -34,6 +35,7 @@ INTRO_MUSIC_FALLBACK_PATH = os.path.join(
     "audio",
     "Nippon India Mutual Fund MOGOSCAPE®(2).mp3",
 )
+IST = ZoneInfo("Asia/Kolkata")
 
 # Sarvam TTS valid speaker IDs (from API validation). Map legacy/UI names to these.
 SARVAM_VALID_SPEAKERS = frozenset({
@@ -61,6 +63,11 @@ def _resolve_sarvam_speaker(speaker: Optional[str], language: str) -> str:
         return resolved
     # Any other value (sachit, karan, typo, etc.) -> use language default
     return SARVAM_DEFAULT_SPEAKER.get(language, "anushka")
+
+
+def _now_ist() -> datetime:
+    """Return timezone-aware current datetime in India timezone."""
+    return datetime.now(IST)
 
 
 _HINDI_MONTHS = {
@@ -442,7 +449,7 @@ async def generate_audio_from_script(
             audio_bytes = await _prepend_intro_music(audio_bytes)
 
         # Save file
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        timestamp = _now_ist().strftime('%Y%m%d_%H%M%S')
         filename = f"podcast_{language}_{timestamp}.{file_extension}"
         filepath = os.path.join(audio_storage_path, filename)
 
@@ -731,7 +738,7 @@ async def generate_english_audio_deepgram(
             audio_bytes = await _prepend_intro_music(audio_bytes)
 
         # Save to disk
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = _now_ist().strftime("%Y%m%d_%H%M%S")
         filename = f"podcast_en_{timestamp}.{file_extension}"
         filepath = os.path.join(audio_storage_path, filename)
 

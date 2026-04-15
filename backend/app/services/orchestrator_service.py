@@ -1,6 +1,7 @@
 import os
 import json
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Optional, Dict, Any
 
 from app.core.config import settings
@@ -14,6 +15,8 @@ from app.services.podcast.audio import (
     DEEPGRAM_DEFAULT_VOICE,
 )
 from app.services.cloudinary_service import upload_mp3
+
+IST = ZoneInfo("Asia/Kolkata")
 
 
 class OrchestratorService:
@@ -29,6 +32,10 @@ class OrchestratorService:
        - "both" → Both English and Hindi audio
     4. Return results with generated scripts and audio files
     """
+
+    def _now_ist(self) -> datetime:
+        """Return timezone-aware current datetime in India timezone."""
+        return datetime.now(IST)
 
     async def generate_podcast(
         self,
@@ -75,7 +82,7 @@ class OrchestratorService:
                 "error": None
             }
         """
-        now = datetime.now()
+        now = self._now_ist()
         yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
         current_datetime = now.strftime("%Y-%m-%d %H:%M")
         
@@ -295,7 +302,7 @@ class OrchestratorService:
                 },
                 "error": None,
                 "sources_used": sources_used,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": self._now_ist().isoformat()
             }
 
             logger.info("\n" + "=" * 70)
@@ -350,7 +357,7 @@ class OrchestratorService:
     def _save_raw_data(self, data: Any, date_str: str, podcast_name: str):
         """Save raw generated data for audit and debugging"""
         try:
-            timestamp = datetime.now().strftime('%H%M%S')
+            timestamp = self._now_ist().strftime('%H%M%S')
             filename = f"raw_{podcast_name}_{date_str}_{timestamp}.json"
             filepath = os.path.join(settings.RAW_DATA_STORAGE_PATH, filename)
             
@@ -386,7 +393,7 @@ class OrchestratorService:
             },
             "error": error_msg,
             "sources_used": [],
-            "timestamp": datetime.now().isoformat()
+            "timestamp": self._now_ist().isoformat()
         }
 
 
