@@ -34,8 +34,9 @@ AGENT_DESCRIPTION: str = "Financial market analysis and podcast script generatio
 
 def web_search(query: str, max_results: int = 10) -> str:
     """
-    Custom web search tool using DuckDuckGo.
-    Use this for financial research and getting current information.
+    Search the web for current information, news, and financial data.
+    Use this tool to research market trends, stock prices, company news,
+    economic indicators, and other real-time information.
     
     Args:
         query: Search query (be specific and include context)
@@ -50,7 +51,6 @@ def web_search(query: str, max_results: int = 10) -> str:
     try:
         results = []
         with DDGS() as ddgs:
-            # Search for news/articles
             for i, result in enumerate(ddgs.news(query, max_results=max_results)):
                 results.append({
                     "type": "news",
@@ -62,7 +62,6 @@ def web_search(query: str, max_results: int = 10) -> str:
                 if len(results) >= max_results:
                     break
             
-            # If not enough news results, fill with web results
             if len(results) < max_results:
                 for result in ddgs.text(query, max_results=max_results):
                     url = result.get("href", "")
@@ -89,16 +88,7 @@ def get_search_tool():
     """Get the custom search tool for ADK."""
     if not FunctionTool:
         return None
-    return FunctionTool(
-        name="web_search",
-        description=(
-            "Search the web for current information, news, and financial data. "
-            "Use this tool to research market trends, stock prices, company news, "
-            "economic indicators, and other real-time information. "
-            "Input should be a clear search query string."
-        ),
-        fn=web_search,
-    )
+    return FunctionTool(func=web_search)
 
 
 def initialize_agent() -> Tuple[Optional["LlmAgent"], Optional["InMemorySessionService"], bool]:
