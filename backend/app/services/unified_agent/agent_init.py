@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, List
 
 from app.core.config import settings
 from app.core.logger import logger
@@ -32,73 +32,72 @@ except ImportError:
 
 AGENT_DESCRIPTION: str = "Financial market analysis and podcast script generation"
 
-MODEL_CONFIGS = {
-    "gemma-4-26b-a4b-it": {
-        "type": "gemini",
-        "description": "Gemma 4 26B MoE (efficient)",
-    },
-    "gemma-4-31b-it": {
-        "type": "gemini",
-        "description": "Gemma 4 31B (larger, better quality)",
-    },
-    "gemini-2.5-flash": {
-        "type": "gemini",
-        "description": "Gemini Flash 2.5 (fast, reliable)",
-    },
-    "gemini-flash-latest": {
-        "type": "gemini",
-        "description": "Gemini Flash latest (auto-updates)",
-    },
+MODELS_WITH_GOOGLE_SEARCH = {
+    "gemini-2.5-flash",
+    "gemini-flash-latest",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+}
+
+MODELS_WITHOUT_GOOGLE_SEARCH = {
+    "gemma-4-26b-a4b-it",
+    "gemma-4-31b-it",
+    "gemma-3-27b-it",
+    "gemma-3-12b-it",
 }
 
 
-def create_gemini_agent(model_name: str) -> "LlmAgent":
-    """Create an agent using Gemini model (native Gemma or Gemini)."""
-    return LlmAgent(
-        name="podcast_generation_agent",
-        model=Gemini(model=model_name),
-        description=AGENT_DESCRIPTION,
-        instruction=(
-            "You are a financial research agent. "
-            "Research market data and generate professional podcast scripts."
-        ),
-        tools=[google_search] if google_search else [],
-    )
-
-
-def create_huggingface_agent(model_name: str, api_base: str = None) -> Optional["LlmAgent"]:
-    """Create an agent using HuggingFace Inference Endpoint via LiteLLM."""
-    if not LITELLM_AVAILABLE:
-        logger.warning("LiteLLM not available. Cannot create HuggingFace agent.")
-        return None
-
-    hf_token = os.getenv("HF_TOKEN", "")
-
+def create_agent(model_name: str, model_type: str = "gemini", api_base: str = None) -> Tuple[Optional["LlmAgent"], Optional[str]]:
+    """
+    Create an agent with appropriate tool configuration.
+    Returns (agent, error_message).
+    """
     try:
-        agent = LlmAgent(
-            model=LiteLlm(
+        if model_type == "gemini":
+            model = Gemini(model=model_name)
+            tools = [google_search] if google_search and model_name in MODELS_WITH_GOOGLE_SEARCH else []
+            
+            if model_name in MODELS_WITHOUT_GOOGLE_SEARCH:
+                logger.info(f"Model {model_name} doesn't support google_search - using without search tool")
+        elif model_type == "huggingface":
+            if not LITELLM_AVAILABLE:
+                return None, "LiteLLM not available"
+            
+            hf_token = os.getenv("HF_TOKEN", "")
+            model = LiteLlm(
                 model=model_name,
                 api_base=api_base,
                 api_key=hf_token,
-            ),
+            )
+            tools = []  # HuggingFace models typically don't support google_search
+        else:
+            return None, f"Unknown model type: {model_type}"
+
+        agent = LlmAgent(
             name="podcast_generation_agent",
+            model=model,
             description=AGENT_DESCRIPTION,
             instruction=(
                 "You are a financial research agent. "
                 "Research market data and generate professional podcast scripts."
             ),
-            tools=[google_search] if google_search else [],
+            tools=tools,
         )
-        return agent
+        return agent, None
+
     except Exception as e:
-        logger.error(f"Failed to create HuggingFace agent: {e}")
-        return None
+        return None, str(e)
 
 
 def initialize_agent() -> Tuple[Optional["LlmAgent"], Optional["InMemorySessionService"], bool]:
     """
     Initialize Google ADK Agent with model fallback chain.
-    Priority: Gemma 4 26B → Gemma 4 31B → Gemini Flash 2.5 → HuggingFace
+    
+    Priority order:
+    1. Gemini models WITH google_search (most reliable for web search)
+    2. Gemma models WITHOUT google_search (rely on training data)
+    3. HuggingFace models (if configured)
 
     Returns (agent, session_service, success)
     """
@@ -111,30 +110,30 @@ def initialize_agent() -> Tuple[Optional["LlmAgent"], Optional["InMemorySessionS
         return None, None, False
 
     model_chain = [
-        ("gemma-4-26b-a4b-it", "gemini", None),
-        ("gemma-4-31b-it", "gemini", None),
-        ("gemini-2.5-flash", "gemini", None),
-        ("gemini-flash-latest", "gemini", None),
+        ("gemini-2.5-flash", "gemini", None, True),
+        ("gemini-flash-latest", "gemini", None, True),
+        ("gemini-2.0-flash", "gemini", None, True),
+        ("gemma-4-31b-it", "gemini", None, False),
+        ("gemma-4-26b-a4b-it", "gemini", None, False),
     ]
 
     hf_model = os.getenv("HF_FALLBACK_MODEL")
     hf_api_base = os.getenv("HF_INFERENCE_API_BASE")
     if hf_model:
-        model_chain.append((hf_model, "huggingface", hf_api_base))
+        model_chain.append((hf_model, "huggingface", hf_api_base, False))
 
-    for model_name, model_type, api_base in model_chain:
+    for model_name, model_type, api_base, supports_search in model_chain:
         try:
-            logger.info(f"Initializing agent with model: {model_name} (type: {model_type})")
+            search_note = "with google_search" if supports_search else "without google_search"
+            logger.info(f"Initializing agent with model: {model_name} ({search_note})")
 
-            if model_type == "gemini":
-                agent = create_gemini_agent(model_name)
-            elif model_type == "huggingface":
-                agent = create_huggingface_agent(model_name, api_base)
-                if agent is None:
+            agent, error = create_agent(model_name, model_type, api_base)
+            if agent is None:
+                error_lower = error.lower() if error else ""
+                if "not supported" in error_lower or "not available" in error_lower:
+                    logger.warning(f"Model {model_name} not available: {error}, trying next...")
                     continue
-            else:
-                logger.warning(f"Unknown model type: {model_type}")
-                continue
+                return None, None, False
 
             session_service = InMemorySessionService()
 
@@ -142,12 +141,18 @@ def initialize_agent() -> Tuple[Optional["LlmAgent"], Optional["InMemorySessionS
             return agent, session_service, True
 
         except Exception as e:
-            error_lower = str(e).lower()
+            error_msg = str(e)
+            error_lower = error_msg.lower()
+            
             if any(x in error_lower for x in ["429", "rate limit", "quota", "resource exhausted", "too many requests"]):
                 logger.warning(f"Model {model_name} rate limited, trying next fallback...")
                 continue
 
-            logger.error(f"Failed to initialize agent with {model_name}: {str(e)}", exc_info=True)
+            if "not supported" in error_lower or "google search" in error_lower:
+                logger.warning(f"Model {model_name} doesn't support required features: {error_msg}")
+                continue
+
+            logger.error(f"Failed to initialize agent with {model_name}: {error_msg}", exc_info=True)
             continue
 
     logger.error("All models exhausted - all hit rate limits or failed")
