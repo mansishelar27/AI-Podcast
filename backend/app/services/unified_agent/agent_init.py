@@ -43,6 +43,7 @@ def initialize_agent() -> Tuple[Optional["LlmAgent"], Optional["InMemorySessionS
         return None, None, False
 
     model_chain = [
+        "gemini-2.0-flash",
         "gemini-2.5-flash",
     ]
 
@@ -72,7 +73,7 @@ def initialize_agent() -> Tuple[Optional["LlmAgent"], Optional["InMemorySessionS
             error_msg = str(e)
             error_lower = error_msg.lower()
             
-            if any(x in error_lower for x in ["429", "rate limit", "quota", "resource exhausted", "too many requests"]):
+            if any(x in error_lower for x in ["429", "503", "rate limit", "quota", "unavailable", "resource exhausted", "too many requests"]):
                 logger.warning(f"Model {model_name} rate limited, trying next...")
                 continue
 
