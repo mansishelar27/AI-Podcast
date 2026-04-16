@@ -5,6 +5,8 @@ import io
 import wave
 import re
 import json
+import tempfile
+import subprocess
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Optional, List, Dict
@@ -56,6 +58,73 @@ def _debug_log(run_id: str, hypothesis_id: str, location: str, message: str, dat
             debug_file.write(json.dumps(payload, ensure_ascii=False) + "\n")
     except Exception:
         pass
+
+
+def _ffmpeg_available() -> bool:
+    try:
+        proc = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True)
+        return proc.returncode == 0
+    except Exception:
+        return False
+
+
+def _ffmpeg_convert_wav_to_mp3(wav_bytes: bytes) -> Optional[bytes]:
+    if not _ffmpeg_available():
+        return None
+    in_path = ""
+    out_path = ""
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as in_file:
+            in_file.write(wav_bytes)
+            in_path = in_file.name
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as out_file:
+            out_path = out_file.name
+        cmd = ["ffmpeg", "-y", "-i", in_path, "-codec:a", "libmp3lame", "-b:a", "192k", out_path]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            return None
+        with open(out_path, "rb") as f:
+            return f.read()
+    except Exception:
+        return None
+    finally:
+        if in_path and os.path.exists(in_path):
+            os.remove(in_path)
+        if out_path and os.path.exists(out_path):
+            os.remove(out_path)
+
+
+def _ffmpeg_prepend_intro_mp3(podcast_mp3: bytes, intro_path: str) -> Optional[bytes]:
+    if not _ffmpeg_available() or not intro_path or not os.path.exists(intro_path):
+        return None
+    podcast_path = ""
+    concat_path = ""
+    out_path = ""
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as p_file:
+            p_file.write(podcast_mp3)
+            podcast_path = p_file.name
+        with tempfile.NamedTemporaryFile(suffix=".txt", mode="w", encoding="utf-8", delete=False) as c_file:
+            concat_path = c_file.name
+            c_file.write(f"file '{intro_path}'\n")
+            c_file.write(f"file '{podcast_path}'\n")
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as o_file:
+            out_path = o_file.name
+        cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_path, "-c", "copy", out_path]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            return None
+        with open(out_path, "rb") as f:
+            return f.read()
+    except Exception:
+        return None
+    finally:
+        if podcast_path and os.path.exists(podcast_path):
+            os.remove(podcast_path)
+        if concat_path and os.path.exists(concat_path):
+            os.remove(concat_path)
+        if out_path and os.path.exists(out_path):
+            os.remove(out_path)
 
 # Sarvam TTS valid speaker IDs (from API validation). Map legacy/UI names to these.
 SARVAM_VALID_SPEAKERS = frozenset({
@@ -287,6 +356,19 @@ async def _prepend_intro_music_mp3(mp3_bytes: bytes) -> bytes:
     Intro file is already MP3 and is not converted independently.
     """
     if not PYDUB_AVAILABLE:
+        intro_path = _resolve_intro_music_path()
+        ffmpeg_out = _ffmpeg_prepend_intro_mp3(mp3_bytes, intro_path)
+        if ffmpeg_out:
+            # region agent log
+            _debug_log(
+                run_id="post-fix",
+                hypothesis_id="H2",
+                location="audio.py:_prepend_intro_music_mp3:ffmpeg_fallback_success",
+                message="Prepended intro with ffmpeg fallback when pydub unavailable",
+                data={"intro_path": intro_path, "output_bytes": len(ffmpeg_out)},
+            )
+            # endregion
+            return ffmpeg_out
         # region agent log
         _debug_log(
             run_id="pre-fix",
@@ -382,7 +464,19 @@ async def convert_to_mp3(audio_bytes: bytes) -> bytes:
         MP3 audio bytes
     """
     if not PYDUB_AVAILABLE:
-        logger.warning("pydub not available. Returning original WAV format.")
+        ffmpeg_mp3 = _ffmpeg_convert_wav_to_mp3(audio_bytes)
+        if ffmpeg_mp3:
+            # region agent log
+            _debug_log(
+                run_id="post-fix",
+                hypothesis_id="H2",
+                location="audio.py:convert_to_mp3:ffmpeg_fallback_success",
+                message="Converted WAV to MP3 using ffmpeg fallback",
+                data={"input_bytes": len(audio_bytes), "output_bytes": len(ffmpeg_mp3)},
+            )
+            # endregion
+            return ffmpeg_mp3
+        logger.warning("pydub not available and ffmpeg fallback failed. Returning original WAV format.")
         return audio_bytes
 
     try:
