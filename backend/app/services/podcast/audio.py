@@ -96,6 +96,20 @@ def _ffmpeg_convert_wav_to_mp3(wav_bytes: bytes) -> Optional[bytes]:
 
 def _ffmpeg_prepend_intro_mp3(podcast_mp3: bytes, intro_path: str) -> Optional[bytes]:
     if not _ffmpeg_available() or not intro_path or not os.path.exists(intro_path):
+        # region agent log
+        _debug_log(
+            run_id="pre-fix-2",
+            hypothesis_id="H8",
+            location="audio.py:_ffmpeg_prepend_intro_mp3:precheck_failed",
+            message="ffmpeg prepend precheck failed",
+            data={
+                "ffmpeg_available": _ffmpeg_available(),
+                "intro_path": intro_path,
+                "intro_exists": bool(intro_path and os.path.exists(intro_path)),
+                "podcast_bytes": len(podcast_mp3),
+            },
+        )
+        # endregion
         return None
     podcast_path = ""
     concat_path = ""
@@ -111,12 +125,58 @@ def _ffmpeg_prepend_intro_mp3(podcast_mp3: bytes, intro_path: str) -> Optional[b
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as o_file:
             out_path = o_file.name
         cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_path, "-c", "copy", out_path]
+        # region agent log
+        _debug_log(
+            run_id="pre-fix-2",
+            hypothesis_id="H9",
+            location="audio.py:_ffmpeg_prepend_intro_mp3:before_exec",
+            message="Running ffmpeg concat prepend",
+            data={
+                "intro_path": intro_path,
+                "podcast_temp_path": podcast_path,
+                "concat_file_path": concat_path,
+                "podcast_bytes": len(podcast_mp3),
+            },
+        )
+        # endregion
         proc = subprocess.run(cmd, capture_output=True, text=True)
+        # region agent log
+        _debug_log(
+            run_id="pre-fix-2",
+            hypothesis_id="H9",
+            location="audio.py:_ffmpeg_prepend_intro_mp3:after_exec",
+            message="ffmpeg concat prepend finished",
+            data={
+                "returncode": proc.returncode,
+                "stderr_tail": (proc.stderr or "")[-500:],
+                "stdout_tail": (proc.stdout or "")[-200:],
+            },
+        )
+        # endregion
         if proc.returncode != 0:
             return None
         with open(out_path, "rb") as f:
-            return f.read()
+            output = f.read()
+        # region agent log
+        _debug_log(
+            run_id="pre-fix-2",
+            hypothesis_id="H10",
+            location="audio.py:_ffmpeg_prepend_intro_mp3:output_ready",
+            message="ffmpeg concat output generated",
+            data={"output_bytes": len(output)},
+        )
+        # endregion
+        return output
     except Exception:
+        # region agent log
+        _debug_log(
+            run_id="pre-fix-2",
+            hypothesis_id="H10",
+            location="audio.py:_ffmpeg_prepend_intro_mp3:exception",
+            message="Exception during ffmpeg prepend",
+            data={},
+        )
+        # endregion
         return None
     finally:
         if podcast_path and os.path.exists(podcast_path):
