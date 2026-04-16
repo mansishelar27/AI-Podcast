@@ -4,6 +4,7 @@ import base64
 import io
 import wave
 import re
+import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Optional, List, Dict
@@ -36,6 +37,25 @@ INTRO_MUSIC_FALLBACK_PATH = os.path.join(
     "Nippon India Mutual Fund MOGOSCAPE®(2).mp3",
 )
 IST = ZoneInfo("Asia/Kolkata")
+DEBUG_LOG_PATH = "/home/ashishd/AI-Podcast/.cursor/debug-79956e.log"
+DEBUG_SESSION_ID = "79956e"
+
+
+def _debug_log(run_id: str, hypothesis_id: str, location: str, message: str, data: Dict) -> None:
+    try:
+        payload = {
+            "sessionId": DEBUG_SESSION_ID,
+            "runId": run_id,
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(datetime.now().timestamp() * 1000),
+        }
+        with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as debug_file:
+            debug_file.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
 
 # Sarvam TTS valid speaker IDs (from API validation). Map legacy/UI names to these.
 SARVAM_VALID_SPEAKERS = frozenset({
@@ -267,17 +287,55 @@ async def _prepend_intro_music_mp3(mp3_bytes: bytes) -> bytes:
     Intro file is already MP3 and is not converted independently.
     """
     if not PYDUB_AVAILABLE:
+        # region agent log
+        _debug_log(
+            run_id="pre-fix",
+            hypothesis_id="H2",
+            location="audio.py:_prepend_intro_music_mp3:PYDUB_AVAILABLE",
+            message="Skipping intro prepend because pydub unavailable",
+            data={"pydub_available": PYDUB_AVAILABLE, "input_bytes": len(mp3_bytes)},
+        )
+        # endregion
         logger.debug("pydub not available, skipping intro MP3 prepending.")
         return mp3_bytes
 
     try:
         intro_path = _resolve_intro_music_path()
+        # region agent log
+        _debug_log(
+            run_id="pre-fix",
+            hypothesis_id="H1",
+            location="audio.py:_prepend_intro_music_mp3:intro_path_resolved",
+            message="Resolved intro path for MP3 prepend",
+            data={
+                "intro_path": intro_path,
+                "intro_exists": bool(intro_path and os.path.exists(intro_path)),
+                "input_bytes": len(mp3_bytes),
+            },
+        )
+        # endregion
         if not intro_path:
             logger.debug("Intro music file not found, skipping MP3 intro prepending.")
             return mp3_bytes
 
         intro_audio = AudioSegment.from_file(intro_path, format="mp3")
         podcast_audio = AudioSegment.from_file(io.BytesIO(mp3_bytes), format="mp3")
+        # region agent log
+        _debug_log(
+            run_id="pre-fix",
+            hypothesis_id="H3",
+            location="audio.py:_prepend_intro_music_mp3:loaded_segments",
+            message="Loaded intro and podcast segments before concatenation",
+            data={
+                "intro_ms": len(intro_audio),
+                "podcast_ms": len(podcast_audio),
+                "intro_frame_rate": intro_audio.frame_rate,
+                "podcast_frame_rate": podcast_audio.frame_rate,
+                "intro_channels": intro_audio.channels,
+                "podcast_channels": podcast_audio.channels,
+            },
+        )
+        # endregion
 
         # Match generated MP3 properties to intro before concatenation.
         if intro_audio.frame_rate != podcast_audio.frame_rate:
@@ -288,9 +346,27 @@ async def _prepend_intro_music_mp3(mp3_bytes: bytes) -> bytes:
         final_audio = intro_audio + podcast_audio
         out = io.BytesIO()
         final_audio.export(out, format="mp3", bitrate="192k", parameters=["-q:a", "2"])
+        # region agent log
+        _debug_log(
+            run_id="pre-fix",
+            hypothesis_id="H4",
+            location="audio.py:_prepend_intro_music_mp3:exported",
+            message="Intro prepend succeeded and exported MP3",
+            data={"final_ms": len(final_audio), "output_bytes": out.tell()},
+        )
+        # endregion
         logger.info("Intro MP3 prepended successfully (%d ms total)", len(final_audio))
         return out.getvalue()
     except Exception as e:
+        # region agent log
+        _debug_log(
+            run_id="pre-fix",
+            hypothesis_id="H3",
+            location="audio.py:_prepend_intro_music_mp3:exception",
+            message="Intro prepend failed with exception",
+            data={"error": str(e)},
+        )
+        # endregion
         logger.error(f"Failed to prepend intro to MP3: {str(e)}")
         return mp3_bytes
 
@@ -442,7 +518,25 @@ async def generate_audio_from_script(
         if output_format.lower() == "mp3":
             logger.info("Converting WAV to MP3...")
             audio_bytes = await convert_to_mp3(audio_bytes)
+            # region agent log
+            _debug_log(
+                run_id="pre-fix",
+                hypothesis_id="H4",
+                location="audio.py:generate_audio_from_script:before_intro_prepend",
+                message="Calling intro prepend for mp3 output",
+                data={"language": language, "bytes_before_intro": len(audio_bytes)},
+            )
+            # endregion
             audio_bytes = await _prepend_intro_music_mp3(audio_bytes)
+            # region agent log
+            _debug_log(
+                run_id="pre-fix",
+                hypothesis_id="H4",
+                location="audio.py:generate_audio_from_script:after_intro_prepend",
+                message="Returned from intro prepend for mp3 output",
+                data={"language": language, "bytes_after_intro": len(audio_bytes)},
+            )
+            # endregion
             file_extension = "mp3"
         else:
             # Keep legacy WAV path intact for non-MP3 output requests.
