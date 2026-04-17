@@ -94,6 +94,32 @@ def _ffmpeg_convert_wav_to_mp3(wav_bytes: bytes) -> Optional[bytes]:
             os.remove(out_path)
 
 
+def _ffprobe_duration_seconds(path: str) -> Optional[float]:
+    try:
+        proc = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                path,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            return None
+        out = (proc.stdout or "").strip()
+        if not out:
+            return None
+        return round(float(out), 3)
+    except Exception:
+        return None
+
+
 def _ffmpeg_prepend_intro_mp3(podcast_mp3: bytes, intro_path: str) -> Optional[bytes]:
     if not _ffmpeg_available() or not intro_path or not os.path.exists(intro_path):
         # region agent log
@@ -124,7 +150,28 @@ def _ffmpeg_prepend_intro_mp3(podcast_mp3: bytes, intro_path: str) -> Optional[b
             c_file.write(f"file '{podcast_path}'\n")
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as o_file:
             out_path = o_file.name
-        cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_path, "-c", "copy", out_path]
+        intro_duration = _ffprobe_duration_seconds(intro_path)
+        podcast_duration = _ffprobe_duration_seconds(podcast_path)
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            concat_path,
+            "-vn",
+            "-c:a",
+            "libmp3lame",
+            "-b:a",
+            "192k",
+            "-ar",
+            "44100",
+            "-ac",
+            "2",
+            out_path,
+        ]
         # region agent log
         _debug_log(
             run_id="pre-fix-2",
@@ -136,6 +183,9 @@ def _ffmpeg_prepend_intro_mp3(podcast_mp3: bytes, intro_path: str) -> Optional[b
                 "podcast_temp_path": podcast_path,
                 "concat_file_path": concat_path,
                 "podcast_bytes": len(podcast_mp3),
+                "intro_duration_sec": intro_duration,
+                "podcast_duration_sec": podcast_duration,
+                "ffmpeg_mode": "reencode_lame_192k",
             },
         )
         # endregion
@@ -157,13 +207,22 @@ def _ffmpeg_prepend_intro_mp3(podcast_mp3: bytes, intro_path: str) -> Optional[b
             return None
         with open(out_path, "rb") as f:
             output = f.read()
+        output_duration = _ffprobe_duration_seconds(out_path)
         # region agent log
         _debug_log(
             run_id="pre-fix-2",
             hypothesis_id="H10",
             location="audio.py:_ffmpeg_prepend_intro_mp3:output_ready",
             message="ffmpeg concat output generated",
-            data={"output_bytes": len(output)},
+            data={
+                "output_bytes": len(output),
+                "output_duration_sec": output_duration,
+                "expected_min_duration_sec": (
+                    round((intro_duration or 0.0) + (podcast_duration or 0.0), 3)
+                    if intro_duration is not None and podcast_duration is not None
+                    else None
+                ),
+            },
         )
         # endregion
         return output
