@@ -66,6 +66,7 @@ ENGLISH SCRIPT:
 HINDI SCRIPT:
 - Professional Hindi with medium vocabulary level
 - Same word count and structure as English version
+- Use day-to-day conversational Hindi vocabulary and simple words
 - Use standard financial terminology but explain complex terms
 - Avoid extremely formal words like: परिदृश्य, निहितार्थ, सुव्यवस्थित, अद्यतन, अनिवार्य
 - Use simpler alternatives like: बदलाव, प्रभाव, बेहतर, आवश्यक
