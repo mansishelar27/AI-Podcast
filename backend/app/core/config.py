@@ -24,10 +24,12 @@ class Settings(BaseSettings):
     CLOUDINARY_API_SECRET: str = os.getenv("CLOUDINARY_API_SECRET", "")
     
     # Model Settings - ADK uses models in v1beta API
-    # Gemma 4 models (primary): gemma-4-26b-a4b-it, gemma-4-31b-it
-    # Gemini models (fallback): gemini-2.5-flash, gemini-flash-latest
-    # HuggingFace via HF_TOKEN env var (ultimate fallback)
-    GEMINI_MODEL: str = "gemini-2.5-flash"
+    # Planned Claude primary (currently inactive): claude-sonnet-4-5 on Vertex AI Model Garden
+    # Keep disabled for now; enable in follow-up when Claude runtime registration is ready.
+    CLAUDE_VERTEX_ENABLED: bool = os.getenv("CLAUDE_VERTEX_ENABLED", "false").lower() == "true"
+    CLAUDE_VERTEX_MODEL: str = os.getenv("CLAUDE_VERTEX_MODEL", "claude-sonnet-4-5")
+    # Active model path remains Gemini until Claude path is enabled.
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
     # HuggingFace fallback settings (optional)
     # HF_TOKEN: Your HuggingFace token

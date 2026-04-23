@@ -1,4 +1,3 @@
-import logging
 from typing import Optional, Tuple
 
 from app.core.config import settings
@@ -24,32 +23,57 @@ except ImportError:
 AGENT_DESCRIPTION: str = "Financial market analysis and podcast script generation"
 
 
-def initialize_agent() -> Tuple[Optional["LlmAgent"], Optional["InMemorySessionService"], bool]:
+def initialize_agent(
+    force_provider: Optional[str] = None,
+) -> Tuple[Optional["LlmAgent"], Optional["InMemorySessionService"], bool, Optional[str], Optional[str]]:
     """
-    Initialize Google ADK Agent with Gemini models and Google Search.
+    Initialize Google ADK Agent with Google Search.
 
-    Returns (agent, session_service, success)
+    Returns (agent, session_service, success, provider, model_name)
     """
     if not ADK_AVAILABLE:
         logger.error("Google ADK is required. Install: pip install google-adk")
-        return None, None, False
+        return None, None, False, None, None
 
     if not settings.GEMINI_API_KEY:
         logger.error("GEMINI_API_KEY not configured in settings")
-        return None, None, False
+        return None, None, False, None, None
 
     if not google_search:
         logger.error("google_search tool not available")
-        return None, None, False
+        return None, None, False, None, None
 
+    # Planned Claude-primary chain (kept commented until Vertex/ADK Claude runtime is enabled):
+    # from google.adk.models.anthropic_llm import Claude
+    # from google.adk.models.registry import LLMRegistry
+    # if settings.CLAUDE_VERTEX_ENABLED:
+    #     LLMRegistry.register(Claude)
+    #     model_chain = [
+    #         ("claude_vertex", settings.CLAUDE_VERTEX_MODEL),
+    #         ("gemini", settings.GEMINI_MODEL),
+    #         ("gemini", "gemini-flash-latest"),
+    #     ]
+    # else:
+    #     model_chain = [
+    #         ("gemini", settings.GEMINI_MODEL),
+    #         ("gemini", "gemini-flash-latest"),
+    #     ]
+
+    # Active chain for current phase: Gemini only.
     model_chain = [
-        "gemini-2.5-flash",
-        "gemini-flash-latest",
+        ("gemini", settings.GEMINI_MODEL),
+        ("gemini", "gemini-flash-latest"),
     ]
+    if force_provider == "gemini":
+        logger.info("Forced provider requested: gemini")
 
-    for model_name in model_chain:
+    for provider, model_name in model_chain:
         try:
-            logger.info(f"Initializing agent with model: {model_name}")
+            logger.info(
+                "Initializing agent with provider=%s model=%s",
+                provider,
+                model_name,
+            )
 
             agent = LlmAgent(
                 name="podcast_generation_agent",
@@ -66,8 +90,12 @@ def initialize_agent() -> Tuple[Optional["LlmAgent"], Optional["InMemorySessionS
 
             session_service = InMemorySessionService()
 
-            logger.info(f"✓ UnifiedAgentService initialized with model: {model_name}")
-            return agent, session_service, True
+            logger.info(
+                "✓ UnifiedAgentService initialized with provider=%s model=%s",
+                provider,
+                model_name,
+            )
+            return agent, session_service, True, provider, model_name
 
         except Exception as e:
             error_msg = str(e)
@@ -81,4 +109,4 @@ def initialize_agent() -> Tuple[Optional["LlmAgent"], Optional["InMemorySessionS
             continue
 
     logger.error("All models exhausted")
-    return None, None, False
+    return None, None, False, None, None

@@ -6,7 +6,7 @@ from app.core.logger import logger
 
 from .agent_init import initialize_agent, ADK_AVAILABLE
 from .prompt_builder import build_podcast_prompt
-from .runner_execution import run_agent_and_get_script
+from .runner_execution import run_agent_and_get_script, is_failover_eligible_error
 from .script_cleaner import clean_generated_script
 from .error_handling import error_response
 
@@ -32,11 +32,21 @@ class UnifiedAgentService:
         self.agent = None
         self.session_service = None
         self.app_name = "podcast_agent"
+        self.current_provider: Optional[str] = None
+        self.current_model_name: Optional[str] = None
 
         if ADK_AVAILABLE:
-            self.agent, self.session_service, success = initialize_agent()
+            self.agent, self.session_service, success, provider, model_name = initialize_agent()
+            self.current_provider = provider
+            self.current_model_name = model_name
             if not success:
                 logger.error("UnifiedAgentService failed to initialize properly")
+            else:
+                logger.info(
+                    "UnifiedAgentService active provider=%s model=%s",
+                    self.current_provider,
+                    self.current_model_name,
+                )
 
     async def process_podcast_request(
         self,
@@ -70,6 +80,31 @@ class UnifiedAgentService:
                 prompt=prompt,
                 app_name=self.app_name
             )
+
+            # Failover hook evaluation is active for observability in this phase.
+            # Planned Claude -> Gemini retry implementation is intentionally commented out for now.
+            if not scripts_dict and is_failover_eligible_error(agent_error):
+                logger.warning(
+                    "Failover-eligible model error detected for provider=%s model=%s: %s",
+                    self.current_provider,
+                    self.current_model_name,
+                    agent_error,
+                )
+                # TODO(enable-claude-primary): Uncomment this block when Claude runtime path is enabled.
+                # if self.current_provider == "claude_vertex":
+                #     logger.warning("Claude failed with transient error; retrying with Gemini fallback")
+                #     self.agent, self.session_service, success, provider, model_name = initialize_agent(
+                #         force_provider="gemini"
+                #     )
+                #     if success:
+                #         self.current_provider = provider
+                #         self.current_model_name = model_name
+                #         scripts_dict, agent_error, sources_used = await run_agent_and_get_script(
+                #             agent=self.agent,
+                #             session_service=self.session_service,
+                #             prompt=prompt,
+                #             app_name=self.app_name
+                #         )
 
             if not scripts_dict:
                 return error_response(

@@ -24,6 +24,28 @@ def _fail(msg: str) -> Tuple[None, str, List[str]]:
     return (None, msg, [])
 
 
+def is_failover_eligible_error(msg: Optional[str]) -> bool:
+    """Return True for transient provider/service errors eligible for model failover."""
+    error_lower = (msg or "").lower()
+    transient_markers = (
+        "429",
+        "503",
+        "504",
+        "rate limit",
+        "quota",
+        "resource exhausted",
+        "too many requests",
+        "service unavailable",
+        "unavailable",
+        "timeout",
+        "timed out",
+        "deadline exceeded",
+        "temporarily unavailable",
+        "connection reset",
+    )
+    return any(marker in error_lower for marker in transient_markers)
+
+
 def _extract_urls_from_value(value: Any, seen: Optional[Set[str]] = None) -> Set[str]:
     """Recursively extract http(s) URLs from tool response (dict, list, or string)."""
     if seen is None:
